@@ -812,9 +812,19 @@ class PlaywrightJobManager:
         days = mapping.get(key)
         if days is None:
             return
-        await safe_click(
+        clicked = await safe_click(
             self.page, f"[data-qa='advanced-search__search_period-item-label_{days}']", timeout=3000
         )
+        if not clicked:
+            # Откат: поиск по тексту периода
+            text_map = {"0": "За всё время", "30": "За месяц", "7": "За неделю", "3": "За 3 дня", "1": "За сутки"}
+            text = text_map.get(days, "")
+            if text:
+                await safe_click(
+                    self.page,
+                    f"xpath=//label[contains(., '{text}')] | //*[contains(@data-qa,'search_period')][contains(., '{text}')]",
+                    timeout=3000,
+                )
 
     async def _set_show(self) -> None:
         """Задает количество вакансий, которые будут отображаться на одной странице."""
@@ -856,10 +866,17 @@ class PlaywrightJobManager:
             logger.warning(f"Ошибка при обработке пагинации: {e}")
 
         vacancies = []
-        # Новый селектор после редизайна Magritte
-        cards = await self.page.locator('[data-qa="vacancy-serp__vacancy"]').all()
+        # HH.ru ставит несколько значений через пробел (например, "vacancy-serp__vacancy vacancy-serp__vacancy_standard"),
+        # поэтому exact CSS match не работает — используем XPath с проверкой по целому слову.
+        card_xpath = "xpath=//*[contains(concat(' ', normalize-space(@data-qa), ' '), ' vacancy-serp__vacancy ')]"
+        # Даём странице время отрендерить карточки
+        try:
+            await self.page.wait_for_selector(card_xpath, timeout=10000)
+        except Exception:
+            pass
+        cards = await self.page.locator(card_xpath).all()
 
-        logger.info(f"Найдено {len(cards)} вакансий на странице {page_num}")
+        logger.info(f"Найдено {len(cards)} вакансий на странице {page_num} (URL: {self.page.url})")
 
         for card in cards:
             vac = await self._parse_vacancy_card(card)

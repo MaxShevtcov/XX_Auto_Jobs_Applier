@@ -72,11 +72,7 @@ class AsyncTelegramSink:
         self.cooldown = cooldown  # Seconds between identical error notifications
         self.error_cache_file = "src/telegram/error_cache.yaml"
 
-        # Ensure proper async loop handling
-        try:
-            self.loop = asyncio.get_running_loop()
-        except RuntimeError:
-            self.loop = asyncio.new_event_loop()
+        # Loop is resolved at call time to avoid stale loop references
 
     async def _send_with_retry(self, message: str) -> bool:
         """Пытаемся отправить сообщение. В случае ошибки ждем экспоненциально дольше."""
@@ -162,12 +158,13 @@ class AsyncTelegramSink:
     def __call__(self, message: str) -> None:
         """Loguru sink entry point"""
         try:
-            if self.loop.is_running():
-                # If loop is already running, create a task
-                self.loop.create_task(self._process_message(message))
-            else:
-                # Run in a new loop if necessary
-                self.loop.run_until_complete(self._process_message(message))
+            try:
+                loop = asyncio.get_running_loop()
+                # A loop is already running; schedule as a task
+                loop.create_task(self._process_message(message))
+            except RuntimeError:
+                # No running loop — run synchronously
+                asyncio.run(self._process_message(message))
         except Exception:
             tb_str = traceback.format_exc()
             internal_logger.error(f"Failed to schedule Telegram message: {tb_str}")

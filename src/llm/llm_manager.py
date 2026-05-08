@@ -87,6 +87,7 @@ class OpenAIModel(AIModel):
                 else:
                     logger.error(f"Ошибка доступа к LLM: \n Traceback: {tb_str}")
                 time.sleep(3)
+        raise RuntimeError("Не удалось получить ответ от LLM: все прокси не работают")
 
 
 class GeminiModel(AIModel):

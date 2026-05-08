@@ -178,3 +178,6 @@ mono_crash.*
 
 # Workspace files
 *.code-workspace
+
+# Venv
+virtual

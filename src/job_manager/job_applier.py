@@ -68,7 +68,7 @@ class JobApplier:
         self.skip_companies_with_test = parameters.get("skip_companies_with_test", False)
         self.fixed_cover_letter = parameters.get("cover_letter", None)
         # загрузить черный список компаний
-        self.job_blacklist = parameters.get("job_blacklist", [])
+        self.job_blacklist = parameters.get("job_blacklist") or []
         if self.job_blacklist:
             self.job_blacklist = [self._sanitize_text(j_b) for j_b in self.job_blacklist]
         # загрузить компании, в которые были успешно отправлены заявки
