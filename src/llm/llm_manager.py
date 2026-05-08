@@ -107,11 +107,17 @@ class GeminiModel(AIModel):
 
         for proxy in llm_proxies:
             try:
-                os.environ["https_proxy"] = proxy
+                if proxy:
+                    os.environ["https_proxy"] = proxy
+                    os.environ["HTTPS_PROXY"] = proxy
+                else:
+                    os.environ.pop("https_proxy", None)
+                    os.environ.pop("HTTPS_PROXY", None)
                 model = ChatGoogleGenerativeAI(
                     model=self.model,
                     google_api_key=self.google_api_key,
                     temperature=TEMPERATURE,
+                    transport="rest",
                     safety_settings={
                         HarmCategory.HARM_CATEGORY_UNSPECIFIED: HarmBlockThreshold.BLOCK_NONE,
                         HarmCategory.HARM_CATEGORY_DEROGATORY: HarmBlockThreshold.BLOCK_NONE,
@@ -127,7 +133,6 @@ class GeminiModel(AIModel):
                     },
                 )
                 response = model.invoke(prompt_messages)
-                del os.environ["https_proxy"]
                 return response
             except Exception:
                 tb_str = traceback.format_exc()
@@ -139,10 +144,9 @@ class GeminiModel(AIModel):
                     logger.error(f"Ошибка доступа к LLM: \n Traceback: {tb_str}")
                 time.sleep(3)
             finally:
-                try:
-                    del os.environ["https_proxy"]
-                except KeyError:
-                    pass
+                os.environ.pop("https_proxy", None)
+                os.environ.pop("HTTPS_PROXY", None)
+        raise RuntimeError("Не удалось получить ответ от LLM: все прокси не работают")
 
 
 # class ClaudeModel(AIModel):

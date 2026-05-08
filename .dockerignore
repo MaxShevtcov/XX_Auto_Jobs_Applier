@@ -1,0 +1,11 @@
+virtual/
+.git/
+__pycache__/
+*.pyc
+*.pyo
+logs/
+data_folder/
+.pytest_cache/
+tests/
+notebooks/
+*.md

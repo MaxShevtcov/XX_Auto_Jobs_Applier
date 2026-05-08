@@ -1,0 +1,13 @@
+services:
+  hh-applier:
+    build: .
+    image: hh-applier:latest
+    container_name: hh_applier
+    working_dir: /app
+    user: "1000:1000"
+    volumes:
+      - ./data_folder:/app/data_folder
+      - ./logs:/app/logs
+    restart: "no"
+    # security_opt:
+    #   - seccomp:unconfined

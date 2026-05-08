@@ -1,0 +1,11 @@
+[Unit]
+Description=HH Auto Jobs Applier (Docker)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/maxim/dev/XX_Auto_Jobs_Applier
+ExecStart=/usr/bin/docker compose run --rm hh-applier
+StandardOutput=append:/home/maxim/dev/XX_Auto_Jobs_Applier/logs/cron.log
+StandardError=append:/home/maxim/dev/XX_Auto_Jobs_Applier/logs/cron.log
