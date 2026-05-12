@@ -998,7 +998,9 @@ class PlaywrightJobManager:
                 await cookies_btn.click()
                 break
             # Уведомления
-            close_btn = self.page.locator('[data-qa="notification-close-button"]')
+            close_btn = self.page.locator(
+                "xpath=//*[contains(@data-qa, 'notification-close-button') and not(ancestor::*[contains(@data-qa, 'vacancy-response')]) ]"
+            )
             if await close_btn.count() > 0:
                 await close_btn.click()
                 break
@@ -1009,6 +1011,50 @@ class PlaywrightJobManager:
                 break
 
             message_was_processed = False
+
+    async def _close_magritte_dropdowns(self) -> None:
+        """Закрывает или удаляет видимые magritte dropdown-меню, блокирующие клики."""
+        try:
+            await self.page.keyboard.press("Escape")
+            await self.page.evaluate(
+                "() => {"
+                "  document.querySelectorAll('div[data-qa=\"drop-base\"], div[data-qa^=\"drop-base\"], div[class*=\"magritte-drop-base\"]')"
+                "    .forEach(el => el.remove());"
+                "}"
+            )
+            logger.debug("Magritte dropdowns closed/removed")
+            await self.pause_async(0.2, 0.4)
+        except Exception as e:
+            logger.debug(f"Не удалось закрыть magritte dropdowns: {e}")
+
+    async def _debug_screenshot(self, step_name: str) -> None:
+        """Сохраняет скриншот текущей страницы для диагностики."""
+        if not self.page:
+            return
+        try:
+            path = f"debug_{step_name}_{int(datetime.now().timestamp())}.png"
+            await self.page.screenshot(path=path, full_page=True)
+            logger.debug(f"Скриншот сохранён: {path} (URL: {self.page.url})")
+        except Exception as e:
+            logger.debug(f"Не удалось сохранить скриншот: {e}")
+
+    async def record_apply_trace(self, vacancy_url: str, output: str = "trace_apply.zip") -> None:
+        """Открывает вакансию и сохраняет trace для ручного прохождения пути отклика."""
+        if not self.page:
+            await self.initialize()
+        if not self.page:
+            logger.error("Страница Playwright не инициализирована для trace.")
+            return
+
+        if self.context:
+            await self.context.tracing.start(screenshots=True, snapshots=True, sources=True)
+        await self.page.goto(vacancy_url)
+        logger.info(f"Переход на страницу: {vacancy_url}")
+        logger.info("Playwright Inspector открыт. Пройдите путь отклика вручную.")
+        await self.page.pause()
+        if self.context:
+            await self.context.tracing.stop(path=output)
+            logger.info(f"Трассировка сохранена: {output}. Просмотр: playwright show-trace {output}")
 
     async def apply_to_vacancy(
         self, vacancy_url: str, cover_letter: str, gpt_answerer: Any, resume_component: Any
@@ -1022,6 +1068,8 @@ class PlaywrightJobManager:
             logger.info(f"Переход на страницу: {vacancy_url}")
 
         await self.pause_async(1, 2)
+        await self._handle_interfering_messages()
+        await self.pause_async(0.5, 1)
 
         # Нажимаем "Откликнуться"
         apply_btn_top_selector = '[data-qa="vacancy-response-link-top"]'
@@ -1031,9 +1079,22 @@ class PlaywrightJobManager:
         clicked = await safe_click(self.page, apply_btn_top_selector, click_all=True)
         if not clicked:
             clicked = await safe_click(self.page, apply_btn_bottom_selector, click_all=True)
+        # Fallback: кнопка по тексту (Magritte UI не всегда использует data-qa)
+        if not clicked:
+            clicked = await safe_click(
+                self.page,
+                "xpath=//button[normalize-space(.)='Откликнуться']",
+                click_all=True,
+                timeout=5000,
+            )
 
         if not clicked:
-            # Проверяем, был ли уже отклик или другое состояние
+            await self._debug_screenshot("apply_btn_not_found")
+            already_applied = self.page.locator(
+                "xpath=//*[contains(., 'Вы уже откликались') or contains(., 'Отклик отправлен') or contains(., 'Вы уже отправили отклик')]"
+            )
+            if await already_applied.count() > 0:
+                return "Skip", "Уже откликались на эту вакансию"
             return "Error", "Кнопка отклика не найдена"
 
         await self.pause_async(1, 2)
@@ -1041,8 +1102,20 @@ class PlaywrightJobManager:
         await self._select_resume(resume_component)
         logger.info("Выбрали резюме")
 
-        # Ждём модального окна или перехода
-        await self._handle_interfering_messages()
+        # Ждём следующего состояния модала: CL-форма, вопросы или финальная кнопка
+        for _sel in [
+            "xpath=//button[contains(normalize-space(.), 'Добавить сопроводительное')]",
+            '[data-qa="vacancy-response-letter-informer"]',
+            '[data-qa="task-body"]',
+            "xpath=//button[normalize-space(.)='Откликнуться']",
+            '[data-qa="vacancy-response-submit-popup"]',
+        ]:
+            try:
+                await self.page.wait_for_selector(_sel, timeout=3000)
+                break
+            except Exception:
+                continue
+        await self.pause_async(0.5, 1)
 
         # Обрабатываем вопросы
         questions_selector = '[data-qa="task-body"]'
@@ -1079,19 +1152,32 @@ class PlaywrightJobManager:
                 await self.pause_async(2, 3)
                 return "Success", "Сопроводительное письмо отправлено"
 
-        # Сопроводительное письмо вариант 2
-        cl_btn_xpath = "xpath=//*[text()='Добавить' or contains(text(), 'Сопроводительное')]"
+        # Сопроводительное письмо вариант 2: кнопка «Добавить сопроводительное»
+        cl_btn_xpath = "xpath=//button[contains(normalize-space(.), 'Добавить сопроводительное')]"
         if await self.page.locator(cl_btn_xpath).count() > 0:
             if await self.page.locator(cl_btn_xpath).first.is_visible():
                 logger.info("Жмем кнопку открытия формы сопроводительного письма (вариант 2)")
                 await safe_click(self.page, cl_btn_xpath, supress_warnings=True)
-                await self.pause_async(1, 2)
-        cl_input = self.page.locator('[data-qa="vacancy-response-popup-form-letter-input"]')
+                # Ждём появления textarea (aria-label из Magritte или старый data-qa)
+                try:
+                    await self.page.wait_for_selector(
+                        'textarea[aria-label="Сопроводительное письмо"], '
+                        '[data-qa="vacancy-response-popup-form-letter-input"]',
+                        timeout=3000,
+                    )
+                except Exception:
+                    pass
+                await self.pause_async(0.5, 1)
+        _cl_selector = (
+            'textarea[aria-label="Сопроводительное письмо"], '
+            '[data-qa="vacancy-response-popup-form-letter-input"]'
+        )
+        cl_input = self.page.locator(_cl_selector)
         if await cl_input.count() > 0:
             logger.info("Заполняем форму сопроводительного письма (вариант 2)")
             await safe_fill(
                 self.page,
-                '[data-qa="vacancy-response-popup-form-letter-input"]',
+                _cl_selector,
                 cover_letter,
                 supress_warnings=True,
             )
@@ -1103,18 +1189,53 @@ class PlaywrightJobManager:
         modal_submit_btn = self.page.locator('[data-qa="vacancy-response-submit-popup"]')
         if await modal_submit_btn.count() > 0 and await modal_submit_btn.is_visible():
             logger.info("Жмем кнопку отправки сопроводительного письма (вариант 2)")
-            await safe_click(self.page, '[data-qa="vacancy-response-submit-popup"]')
+            clicked_submit = await safe_click(
+                self.page,
+                '[data-qa="vacancy-response-submit-popup"]',
+                timeout=10000,
+            )
+            if not clicked_submit:
+                logger.info("Закрываем dropdown и повторяем клик submit-кнопки")
+                await self._close_magritte_dropdowns()
+                clicked_submit = await safe_click(
+                    self.page,
+                    '[data-qa="vacancy-response-submit-popup"]',
+                    timeout=10000,
+                    force=True,
+                )
+            if not clicked_submit:
+                logger.info("Пробуем JS-клик submit-кнопки")
+                try:
+                    await self.page.eval_on_selector(
+                        '[data-qa="vacancy-response-submit-popup"]',
+                        "element => element.click()",
+                    )
+                    clicked_submit = True
+                except Exception as e:
+                    logger.debug(f"JS-клик submit-кнопки не сработал: {e}")
             await self.pause_async(3, 4)
-            return "Success", ""
+            if clicked_submit:
+                return "Success", ""
+            logger.warning("Кнопка отправки сопроводительного письма найдена, но клик не сработал")
+            await self._debug_screenshot("variant2_submit_click_failed")
 
-        # Жмем кнопку 'Откликнуться'
-        submit_btn = self.page.locator("xpath=//*[text()='Откликнуться']")
-        if await submit_btn.count() > 0:
-            logger.info("Жмем кнопку 'Откликнуться'")
-            await safe_click(self.page, submit_btn)
+        # Жмем финальную кнопку 'Откликнуться' (появляется после заполнения СП)
+        _submit_selector = "xpath=//button[normalize-space(.)='Откликнуться']"
+        if await self.page.locator(_submit_selector).count() > 0:
+            logger.info("Жмем финальную кнопку 'Откликнуться'")
+            clicked_final = await safe_click(
+                self.page,
+                _submit_selector,
+                click_all=True,
+                timeout=5000,
+            )
             await self.pause_async(3, 4)
-            return "Success", ""
+            if clicked_final:
+                return "Success", ""
+            logger.warning("Финальная кнопка 'Откликнуться' найдена, но клик не сработал")
+            await self._debug_screenshot("final_submit_click_failed")
 
+        await self._debug_screenshot("submit_not_found")
         return "Error", "Кнопка отправки не найдена"
 
     async def _select_resume(self, resume_component: Any) -> None:
@@ -1183,8 +1304,6 @@ class PlaywrightJobManager:
         await safe_click(self.page, "[data-qa^='magritte-select-option-']", element_number=best_idx)
 
         await self.pause_async(0.5, 1)
-
-        await safe_click(self.page, "[data-qa='vacancy-response-submit-popup']", timeout=10000)
 
     async def _handle_question(
         self,

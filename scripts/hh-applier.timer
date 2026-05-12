@@ -4,7 +4,7 @@ Requires=hh-applier.service
 
 [Timer]
 OnBootSec=5min
-OnUnitActiveSec=6h
+OnUnitActiveSec=24h
 Persistent=true
 
 [Install]

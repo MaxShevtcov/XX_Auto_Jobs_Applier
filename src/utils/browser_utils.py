@@ -111,6 +111,7 @@ async def safe_click(
     element_number: int = 0,
     click_all: bool = False,
     supress_warnings: bool = False,
+    force: bool = False,
 ) -> bool:
     """Safely click element with retries (async)"""
     try:
@@ -140,7 +141,7 @@ async def safe_click(
 
                     pause(0.1, 0.3)
 
-                    await target.click(timeout=timeout)
+                    await target.click(timeout=timeout, force=force)
                     logger.debug(f"Successfully clicked: {selector} (match #{idx})")
                     return True
                 except Exception:
@@ -169,7 +170,7 @@ async def safe_click(
         # Human-like pause before clicking
         pause(0.1, 0.3)
 
-        await target.click(timeout=timeout)
+        await target.click(timeout=timeout, force=force)
         logger.debug(f"Successfully clicked: {selector}")
         return True
 
