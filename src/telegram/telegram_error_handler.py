@@ -16,6 +16,7 @@ from src.constants import (
 )
 from telegram import Bot
 from telegram.error import TelegramError
+from telegram.request import HTTPXRequest
 
 # Configure standard logging for internal errors
 logging.basicConfig(level=logging.WARNING)
@@ -64,7 +65,23 @@ class AsyncTelegramSink:
     ):
         secrets = load_yaml_file(SECRETS_FILE)
         telegram_bot_token = secrets["tg_token"]
-        self.bot = Bot(token=telegram_bot_token)
+        proxy_url = secrets.get("tg_proxy")
+        if not proxy_url:
+            llm_proxy = secrets.get("llm_proxy")
+            if isinstance(llm_proxy, list) and llm_proxy:
+                proxy_url = llm_proxy[0]
+            elif isinstance(llm_proxy, str) and llm_proxy:
+                proxy_url = llm_proxy
+
+        request = HTTPXRequest(
+            connection_pool_size=10,
+            pool_timeout=20,
+            read_timeout=20,
+            write_timeout=20,
+            connect_timeout=10,
+            proxy=proxy_url,
+        )
+        self.bot = Bot(token=telegram_bot_token, request=request)
         self.chat_id = secrets["tg_chat_id"]
         self.err_topic_id = secrets["tg_err_topic_id"]
         self.report_topic_id = secrets["tg_report_topic_id"]

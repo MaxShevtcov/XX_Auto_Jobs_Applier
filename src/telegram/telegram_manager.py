@@ -1,4 +1,5 @@
 import asyncio
+import html
 from typing import Any, Dict, Union
 
 from telethon import TelegramClient
@@ -6,8 +7,10 @@ from telethon import TelegramClient
 from src.constants import SEARCH_CONFIG_FILE, SECRETS_FILE
 from src.logger_config import logger
 from src.utils.utils import load_yaml_file
+from src.views.job import JobDescription
 from telegram import Bot
 from telegram.error import TelegramError
+from telegram.request import HTTPXRequest
 
 
 # Send message with PTB
@@ -64,9 +67,26 @@ class TelegramReportSender:
 
     def __init__(self):
         secrets = load_yaml_file(SECRETS_FILE)
-        self.bot = Bot(token=secrets["tg_token"])
+        proxy_url = secrets.get("tg_proxy")
+        if not proxy_url:
+            llm_proxy = secrets.get("llm_proxy")
+            if isinstance(llm_proxy, list) and llm_proxy:
+                proxy_url = llm_proxy[0]
+            elif isinstance(llm_proxy, str) and llm_proxy:
+                proxy_url = llm_proxy
+
+        request = HTTPXRequest(
+            connection_pool_size=10,
+            pool_timeout=20,
+            read_timeout=20,
+            write_timeout=20,
+            connect_timeout=10,
+            proxy=proxy_url,
+        )
+        self.bot = Bot(token=secrets["tg_token"], request=request)
         self.chat_id = secrets["tg_chat_id"]
         self.report_topic_id = secrets["tg_report_topic_id"]
+        self.jobs_topic_id = secrets.get("tg_jobs_topic_id")
         self.user_id = load_yaml_file(SEARCH_CONFIG_FILE).get("user_id", "-1")
         self.message = ""
 
@@ -147,6 +167,37 @@ class TelegramReportSender:
 
         self.message = message
         asyncio.run(self._send_chunked_messages(self.message, header))
+
+    async def _send_to_jobs_topic(self, message: str):
+        if not self.jobs_topic_id:
+            return
+        try:
+            await self.bot.send_message(
+                chat_id=self.chat_id,
+                message_thread_id=self.jobs_topic_id,
+                text=message,
+                parse_mode="HTML",
+            )
+        except TelegramError as e:
+            logger.error(f"Failed to send job description to Telegram: {e}")
+
+    async def send_job_description(self, job_description: JobDescription) -> None:
+        if not self.jobs_topic_id or not job_description:
+            return
+        message = self._format_job_message(job_description)
+        await self._send_to_jobs_topic(message)
+
+    def _format_job_message(self, job_description: JobDescription) -> str:
+        skills_str = ", ".join(job_description.skills) if job_description.skills else "—"
+        cover_letter = html.escape(job_description.cover_letter or "")
+        return (
+            f"📋 <b>{html.escape(job_description.job_title or '')}</b>\n"
+            f"🏢 {html.escape(job_description.company_name or '')}\n"
+            f"⭐ Оценка: {job_description.job_score}\n"
+            f"🛠 Навыки: {html.escape(skills_str)}\n"
+            f"🔗 {html.escape(job_description.link or '')}\n\n"
+            f"<b>Сопроводительное письмо:</b>\n{cover_letter}"
+        )
 
     async def _send_chunked_messages(self, message, header):
         """

@@ -8,7 +8,7 @@ from src.utils.utils import load_yaml_file
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
-SECRETS_FILE = "data_folder/secrets.yaml"
+SECRETS_FILE = "data_folder/secrets/secrets.yaml"
 TELEGRAM_BOT_TOKEN = load_yaml_file(SECRETS_FILE)["tg_token"]
 
 

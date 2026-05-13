@@ -14,6 +14,7 @@ def mock_load_yaml_file(monkeypatch):
                 "tg_token": "test_token",
                 "tg_api_id": "12345",
                 "tg_api_hash": "test_hash",
+                "tg_jobs_topic_id": 321,
             }
         elif file_path == SEARCH_CONFIG_FILE:
             return {"user_id": "test_user"}
@@ -120,6 +121,35 @@ async def test_send_telegram_report(monkeypatch):
         assert async_telegram_report.message == expected_message
         # Verify that asyncio.run was called
         assert mock_asyncio_run.called
+
+
+@pytest.mark.asyncio
+async def test_send_job_description(monkeypatch):
+    from src.telegram.telegram_manager import TelegramReportSender, JobDescription
+
+    async_telegram_report = TelegramReportSender()
+    mock_send_message = AsyncMock()
+    async_telegram_report.bot = AsyncMock()
+    async_telegram_report.bot.send_message = mock_send_message
+    async_telegram_report.jobs_topic_id = 123
+
+    job_description = JobDescription(
+        job_title="Android-разработчик",
+        company_name="ООО КСОР",
+        vacancy_id="131993809",
+        link="https://hh.ru/vacancy/131993809",
+        skills=["android", "kotlin", "android sdk"],
+        cover_letter="Привет! Это тестовое письмо.",
+        job_score=65,
+    )
+
+    await async_telegram_report.send_job_description(job_description)
+
+    mock_send_message.assert_awaited_once()
+    assert mock_send_message.call_args.kwargs["parse_mode"] == "HTML"
+    assert "ООО КСОР" in mock_send_message.call_args.kwargs["text"]
+    assert "Android-разработчик" in mock_send_message.call_args.kwargs["text"]
+    assert "Привет! Это тестовое письмо." in mock_send_message.call_args.kwargs["text"]
 
 
 @pytest.mark.asyncio

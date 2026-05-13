@@ -43,6 +43,8 @@ class JobApplier:
         self.resume_component = resume_component
         self.search_component = search_component
         self.gpt_answerer = None
+        self.pending_job_description = None
+        self.telegram_report_sender = TelegramReportSender()
         self.jobs_no_info = []  # вакансии, на которые не откликнулись из-за отсутствия информации
         self.resume_recommendations = ""
         self.job_key_skills = []  # ключевые навыки по мнению работодателя
@@ -224,6 +226,7 @@ class JobApplier:
         """Разослать отклики всем работодателям на странице"""
         # собрать описание вакансии
         job = await self.scrape_vacancy(vacancy)
+        self.pending_job_description = None
         minimum_job_time = time.time() + MINIMUM_WAIT_TIME_SEC
         company_name = job["company_name"]
         company_job_title = job["job_title"]
@@ -285,6 +288,13 @@ class JobApplier:
                 f"Количество вакансий, на которые успешно откликнулись: {self.success_applies_num}"
             )
             logger.info(f"Общее количество откликов: {self.total_applies_num}")
+            if self.pending_job_description:
+                try:
+                    await self.telegram_report_sender.send_job_description(
+                        self.pending_job_description
+                    )
+                except Exception as e:
+                    logger.error(f"Error sending job description to Telegram: {e}")
         if result != "Limit":
             self._save_company(job, apply_result, vacancy)
         # если страница была обработана быстрее, чем за минимальное время -
@@ -325,10 +335,14 @@ class JobApplier:
                 cover_letter_text = self.fixed_cover_letter
             elif not SKILL_STAT_MODE:
                 cover_letter_text = self.gpt_answerer.write_cover_letter()
-                # деанонимизируем информацию
-                cover_letter_text = self.resume_component.deanonymize_personal_information(
-                    cover_letter_text
-                )
+            else:
+                cover_letter_text = None
+
+            if not SKILL_STAT_MODE and cover_letter_text is not None:
+                if not self.fixed_cover_letter:
+                    cover_letter_text = self.resume_component.deanonymize_personal_information(
+                        cover_letter_text
+                    )
                 job_description = JobDescription(
                     job_title=job_title,
                     company_name=company_name,
@@ -339,6 +353,11 @@ class JobApplier:
                     job_score=job_is_interesting_data["score"],
                 )
                 self._save_job_description(job_description)
+                self.pending_job_description = job_description
+                try:
+                    await self.telegram_report_sender.send_job_description(job_description)
+                except Exception as e:
+                    logger.error(f"Error sending job description to Telegram: {e}")
             if SEARCH_MODE is True:
                 # если находимся в режиме поиска вакансий - не откликаемся на вакансии,
                 # только сохраняем данные о вакансиях + сопроводительные письма в файл
@@ -381,8 +400,7 @@ class JobApplier:
         на которые приложение по той или иной причине откликнуться не смогло,
         а также рекомендации по улучшению резюме
         """
-        bot = TelegramReportSender()
-        bot.send_telegram_report(
+        self.telegram_report_sender.send_telegram_report(
             self.hh_login,
             self.resume,
             self.success_applies_num,
