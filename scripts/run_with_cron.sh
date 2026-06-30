@@ -11,7 +11,12 @@ flock -n 200 || exit 0
 
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting hh-applier" >> "$LOG_FILE"
 cd "$PROJECT_DIR"
-docker compose run --rm hh-applier >> "$LOG_FILE" 2>&1
+# Передать переменную BYPASS_DAILY_CHECK внутрь контейнера, если она есть
+if [ -n "${BYPASS_DAILY_CHECK-}" ]; then
+  docker compose run --rm -e BYPASS_DAILY_CHECK="$BYPASS_DAILY_CHECK" hh-applier >> "$LOG_FILE" 2>&1
+else
+  docker compose run --rm hh-applier >> "$LOG_FILE" 2>&1
+fi
 STATUS=$?
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] Finished with status $STATUS" >> "$LOG_FILE"
 exit $STATUS

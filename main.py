@@ -1,4 +1,5 @@
 import asyncio
+import os
 import traceback
 from pathlib import Path
 from typing import List
@@ -104,9 +105,16 @@ async def create_and_run_bot(
 
         bot = BotFacade(resume_component, search_component, apply_component)
         await bot.set_parameters(parameters)
+        bypass_daily_check = os.getenv("BYPASS_DAILY_CHECK", "false").lower() in ("1", "true", "yes")
+        if bypass_daily_check:
+            logger.info("BYPASS_DAILY_CHECK enabled, bypassing daily run restriction")
         if not apply_component.check_the_last_search_time():
-            logger.warning("Последний поиск был меньше суток назад, завершаем работу")
-            return
+            if not bypass_daily_check:
+                logger.warning("Последний поиск был меньше суток назад, завершаем работу")
+                return
+            logger.warning(
+                "Последний поиск был меньше суток назад, но BYPASS_DAILY_CHECK включен, продолжаем работу"
+            )
         await bot.set_resume()
         bot.set_search_parameters(parameters)
         bot.set_gpt_answerer(gpt_answerer_component, parameters)

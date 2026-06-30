@@ -64,8 +64,17 @@ class PlaywrightJobManager:
 
     async def _perform_login(self) -> bool:
         """Выполняет процесс входа."""
+        # Переходим на главную страницу hh.ru, если мы не на ней или страница не загрузилась
+        current_url = self.page.url
+        if not current_url.startswith("https://hh.ru"):
+            logger.info("Переходим на главную страницу hh.ru для входа...")
+            try:
+                await self.page.goto("https://hh.ru", wait_until="domcontentloaded", timeout=60000)
+            except Exception as e:
+                logger.warning(f"Не удалось перейти на hh.ru: {e}")
+
         # Нажимаем кнопку входа
-        if not await safe_click(self.page, "[data-qa*='login']"):
+        if not await safe_click(self.page, "[data-qa*='login']", timeout=10000):
             logger.error("Кнопка входа не найдена")
             return False
 
@@ -127,12 +136,12 @@ class PlaywrightJobManager:
 
     async def _is_logged_in(self) -> bool:
         """Проверяет, выполнен ли вход."""
-        logger.info("Переходим на страницу входа...")
+        logger.info("Переходим на главную страницу hh.ru для проверки авторизации...")
         try:
-            await self.page.goto("https://hh.ru/employer")
-            logger.info("Переход на страницу: https://hh.ru/employer")
+            await self.page.goto("https://hh.ru", wait_until="domcontentloaded", timeout=60000)
+            logger.info("Переход на страницу: https://hh.ru")
         except Exception as e:
-            logger.warning(f"Не удалось перейти на страницу входа: {e}")
+            logger.warning(f"Не удалось перейти на главную страницу: {e}")
             logger.info("Пробуем продолжить...")
 
         try:
@@ -1027,6 +1036,80 @@ class PlaywrightJobManager:
         except Exception as e:
             logger.debug(f"Не удалось закрыть magritte dropdowns: {e}")
 
+    async def _commit_cover_letter_dropdown(self, cl_selector: str, cover_letter: str) -> None:
+        """Commit cover letter text from the Magritte dropdown into the main form.
+
+        After typing cover letter text in a dropdown/overlay textarea, the text must be
+        committed before clicking the final submit button. Without this step, the
+        application is submitted without the cover letter attached.
+        """
+        # Try to find a save/confirm button within the dropdown near the textarea
+        save_button_selectors = [
+            '[data-qa="vacancy-response-popup-form-letter-submit"]',
+            'xpath=//button[contains(normalize-space(.), "Сохранить")]',
+            'xpath=//button[contains(normalize-space(.), "Применить")]',
+            'xpath=//button[contains(normalize-space(.), "Готово")]',
+            'xpath=//button[contains(normalize-space(.), "OK")]',
+        ]
+
+        clicked_save = False
+        for sel in save_button_selectors:
+            try:
+                btn = self.page.locator(sel)
+                if await btn.count() > 0 and await btn.first.is_visible():
+                    logger.info(f"Commit cover letter via button: {sel}")
+                    await safe_click(self.page, sel, timeout=3000, supress_warnings=True)
+                    await self.pause_async(0.5, 1)
+                    clicked_save = True
+                    break
+            except Exception:
+                continue
+
+        # If no save button found, try pressing Tab+Enter on the textarea
+        if not clicked_save:
+            try:
+                textarea = self.page.locator(cl_selector).first
+                if await textarea.count() > 0:
+                    await textarea.press("Tab")
+                    await self.pause_async(0.2, 0.4)
+                    await self.page.keyboard.press("Enter")
+                    logger.info("Pressed Tab+Enter to commit cover letter")
+                    await self.pause_async(0.5, 1)
+            except Exception:
+                pass
+
+        # Click outside the dropdown to trigger blur-based save
+        if not clicked_save:
+            try:
+                await self.page.keyboard.press("Escape")
+                await self.pause_async(0.3, 0.5)
+            except Exception:
+                pass
+
+        # Wait for the dropdown textarea to disappear (indicates commit succeeded)
+        try:
+            await self.page.wait_for_selector(
+                cl_selector, state="hidden", timeout=3000
+            )
+            logger.info("Cover letter dropdown closed — text committed")
+        except Exception:
+            logger.debug("Cover letter dropdown did not close — may still be visible")
+            await self._debug_screenshot("cl_dropdown_still_open")
+
+        # Verify the cover letter text actually appears on the page
+        try:
+            # Use a safe snippet: first 30 non-special chars, single-quoted for XPath
+            import re as _re
+            cl_snippet = _re.sub(r"[^a-zA-Zа-яА-ЯёЁ0-9 .,!?-]", "", cover_letter)[:30]
+            if cl_snippet:
+                await self.page.wait_for_selector(
+                    f"xpath=//*[contains(normalize-space(.), '{cl_snippet}')]",
+                    timeout=3000,
+                )
+                logger.info("Cover letter text confirmed on page after commit")
+        except Exception:
+            logger.debug("Could not confirm cover letter text on page after commit")
+
     async def _debug_screenshot(self, step_name: str) -> None:
         """Сохраняет скриншот текущей страницы для диагностики."""
         if not self.page:
@@ -1182,6 +1265,8 @@ class PlaywrightJobManager:
                 supress_warnings=True,
             )
             await self.pause_async(1, 2)
+            # Commit cover letter text from dropdown into the form
+            await self._commit_cover_letter_dropdown(_cl_selector, cover_letter)
 
         await self._handle_interfering_messages()
 
