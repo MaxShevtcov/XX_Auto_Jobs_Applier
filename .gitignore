@@ -181,3 +181,5 @@ mono_crash.*
 
 # Venv
 virtual
+# Runtime logs and debug artifacts (may contain sensitive data)
+logs/

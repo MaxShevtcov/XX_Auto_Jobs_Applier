@@ -1080,16 +1080,29 @@ class PlaywrightJobManager:
                 return "Success", "Сопроводительное письмо отправлено"
 
         # Сопроводительное письмо вариант 2
-        cl_btn_xpath = "xpath=//*[text()='Добавить' or contains(text(), 'Сопроводительное')]"
-        if await self.page.locator(cl_btn_xpath).count() > 0:
-            if await self.page.locator(cl_btn_xpath).first.is_visible():
-                logger.info("Жмем кнопку открытия формы сопроводительного письма (вариант 2)")
-                await safe_click(self.page, cl_btn_xpath, supress_warnings=True)
-                await self.pause_async(1, 2)
+        # В текущем интерфейсе hh.ru форма письма скрыта и раскрывается кнопкой
+        # add-cover-letter; textarea vacancy-response-popup-form-letter-input
+        # появляется только после её нажатия.
+        add_letter_selector = '[data-qa="add-cover-letter"]'
+        add_letter_btn = self.page.locator(add_letter_selector)
+        if await add_letter_btn.count() > 0 and await add_letter_btn.first.is_visible():
+            logger.info("Жмем кнопку 'Добавить сопроводительное письмо' (add-cover-letter)")
+            await safe_click(self.page, add_letter_selector, timeout=5000)
+            await self.pause_async(1, 2)
+        else:
+            # Откат для старых версий интерфейса hh.ru
+            cl_btn_xpath = "xpath=//*[text()='Добавить' or contains(text(), 'Сопроводительное')]"
+            if await self.page.locator(cl_btn_xpath).count() > 0:
+                if await self.page.locator(cl_btn_xpath).first.is_visible():
+                    logger.info("Жмем кнопку открытия формы сопроводительного письма (вариант 2)")
+                    await safe_click(self.page, cl_btn_xpath, supress_warnings=True)
+                    await self.pause_async(1, 2)
+
+        letter_filled = not cover_letter
         cl_input = self.page.locator('[data-qa="vacancy-response-popup-form-letter-input"]')
         if await cl_input.count() > 0:
             logger.info("Заполняем форму сопроводительного письма (вариант 2)")
-            await safe_fill(
+            letter_filled = await safe_fill(
                 self.page,
                 '[data-qa="vacancy-response-popup-form-letter-input"]',
                 cover_letter,
@@ -1099,13 +1112,18 @@ class PlaywrightJobManager:
 
         await self._handle_interfering_messages()
 
+        # Если письмо сгенерировано, но заполнить его не удалось - НЕ отправляем отклик,
+        # иначе он уйдет без сопроводительного письма
+        if not letter_filled:
+            return "Error", "Не удалось заполнить сопроводительное письмо"
+
         # Проверяем, открыто ли окно с кнопкой отправки
         modal_submit_btn = self.page.locator('[data-qa="vacancy-response-submit-popup"]')
         if await modal_submit_btn.count() > 0 and await modal_submit_btn.is_visible():
             logger.info("Жмем кнопку отправки сопроводительного письма (вариант 2)")
             await safe_click(self.page, '[data-qa="vacancy-response-submit-popup"]')
             await self.pause_async(3, 4)
-            return "Success", ""
+            return "Success", "Отклик отправлен"
 
         # Жмем кнопку 'Откликнуться'
         submit_btn = self.page.locator("xpath=//*[text()='Откликнуться']")
@@ -1182,9 +1200,9 @@ class PlaywrightJobManager:
 
         await safe_click(self.page, "[data-qa^='magritte-select-option-']", element_number=best_idx)
 
+        # ВАЖНО: не отправляем отклик здесь - сначала основной флоу должен
+        # обработать вопросы и сопроводительное письмо, иначе отклик уйдет без письма
         await self.pause_async(0.5, 1)
-
-        await safe_click(self.page, "[data-qa='vacancy-response-submit-popup']", timeout=10000)
 
     async def _handle_question(
         self,

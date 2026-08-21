@@ -496,3 +496,205 @@ async def test_handle_interfering_messages_closes_cookies(manager_with_page):
         await manager_with_page._handle_interfering_messages()
 
     cookies_btn.click.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# apply_to_vacancy / _select_resume
+# ---------------------------------------------------------------------------
+
+
+def _make_locator(count=0, visible=True, text=""):
+    loc = MagicMock()
+    loc.count = AsyncMock(return_value=count)
+    loc.is_visible = AsyncMock(return_value=visible)
+    if text:
+        loc.text_content = AsyncMock(return_value=text)
+    # как у реального Locator: .first возвращает локатор с тем же API
+    loc.first = loc
+    return loc
+
+
+def _route_locators(page, routes):
+    """Маршрутизатор page.locator: точное совпадение селектора -> мок."""
+
+    def _locate(selector):
+        for key, value in routes.items():
+            if key in selector:
+                return value
+        return _make_locator(0)
+
+    page.locator = MagicMock(side_effect=_locate)
+
+
+@pytest.mark.asyncio
+async def test_apply_to_vacancy_opens_letter_form_before_submit(manager_with_page):
+    """
+    В новом интерфейсе hh.ru форма письма раскрывается кнопкой add-cover-letter.
+    Код обязан кликнуть её и заполнить textarea ДО нажатия vacancy-response-submit-popup.
+    """
+    page = manager_with_page.page
+    page.url = "https://hh.ru/vacancy/1"
+    letter_input = _make_locator(count=1)
+    _route_locators(
+        page,
+        {
+            "vacancy-response-link-top": _make_locator(count=1),
+            "task-body": _make_locator(0),
+            "vacancy-response-letter-informer": _make_locator(0),
+            "add-cover-letter": _make_locator(count=1),
+            "vacancy-response-popup-form-letter-input": letter_input,
+            "vacancy-response-submit-popup": _make_locator(count=1),
+        },
+    )
+
+    calls = []
+
+    async def fake_click(_page, selector, **_kwargs):
+        calls.append(("click", selector))
+        return True
+
+    async def fake_fill(_page, selector, _text, **_kwargs):
+        calls.append(("fill", selector))
+        return True
+
+    with (
+        patch("src.job_manager.playwright_manager.safe_click", side_effect=fake_click),
+        patch("src.job_manager.playwright_manager.safe_fill", side_effect=fake_fill),
+        patch.object(manager_with_page, "pause_async", new_callable=AsyncMock),
+    ):
+        result, reason = await manager_with_page.apply_to_vacancy(
+            "https://hh.ru/vacancy/1", "Тестовое письмо", None, None
+        )
+
+    assert result == "Success"
+    selectors = [s for _, s in calls]
+
+    def call_idx(fragment):
+        return next(i for i, s in enumerate(selectors) if fragment in s)
+
+    assert any("add-cover-letter" in s for s in selectors)
+    assert any("vacancy-response-popup-form-letter-input" in s for s in selectors)
+    assert any("vacancy-response-submit-popup" in s for s in selectors)
+    # письмо раскрывается и заполняется ДО отправки отклика
+    assert call_idx("add-cover-letter") < call_idx("vacancy-response-popup-form-letter-input")
+    assert call_idx("vacancy-response-popup-form-letter-input") < call_idx(
+        "vacancy-response-submit-popup"
+    )
+
+
+@pytest.mark.asyncio
+async def test_apply_to_vacancy_fails_if_letter_not_filled(manager_with_page):
+    """Если заполнить письмо не удалось — отклик НЕ отправляется."""
+    page = manager_with_page.page
+    page.url = "https://hh.ru/vacancy/1"
+    _route_locators(
+        page,
+        {
+            "vacancy-response-link-top": _make_locator(count=1),
+            "task-body": _make_locator(0),
+            "vacancy-response-letter-informer": _make_locator(0),
+            "add-cover-letter": _make_locator(count=1),
+            "vacancy-response-popup-form-letter-input": _make_locator(count=1),
+            "vacancy-response-submit-popup": _make_locator(count=1),
+        },
+    )
+
+    async def fake_click(_page, selector, **_kwargs):
+        return True
+
+    async def failing_fill(_page, _selector, _text, **_kwargs):
+        return False
+
+    submitted = []
+
+    async def tracking_click(_page, selector, **_kwargs):
+        if "submit" in selector:
+            submitted.append(selector)
+        return True
+
+    with (
+        patch("src.job_manager.playwright_manager.safe_click", side_effect=tracking_click),
+        patch("src.job_manager.playwright_manager.safe_fill", side_effect=failing_fill),
+        patch.object(manager_with_page, "pause_async", new_callable=AsyncMock),
+    ):
+        result, reason = await manager_with_page.apply_to_vacancy(
+            "https://hh.ru/vacancy/1", "Тестовое письмо", None, None
+        )
+
+    assert result == "Error"
+    assert "сопроводительное" in reason.lower()
+    assert not submitted
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("has_cover_letter", [False])
+async def test_apply_to_vacancy_without_letter_submits(manager_with_page, has_cover_letter):
+    """Без текста письма (пустой cover_letter) отклик отправляется как раньше."""
+    page = manager_with_page.page
+    page.url = "https://hh.ru/vacancy/1"
+    _route_locators(
+        page,
+        {
+            "vacancy-response-link-top": _make_locator(count=1),
+            "task-body": _make_locator(0),
+            "vacancy-response-letter-informer": _make_locator(0),
+            "add-cover-letter": _make_locator(0),
+            "vacancy-response-submit-popup": _make_locator(count=1),
+        },
+    )
+
+    async def fake_click(_page, _selector, **_kwargs):
+        return True
+
+    with (
+        patch("src.job_manager.playwright_manager.safe_click", side_effect=fake_click),
+        patch.object(manager_with_page, "pause_async", new_callable=AsyncMock),
+    ):
+        result, _ = await manager_with_page.apply_to_vacancy(
+            "https://hh.ru/vacancy/1", "", None, None
+        )
+
+    assert result == "Success"
+
+
+@pytest.mark.asyncio
+async def test_select_resume_does_not_submit_popup(manager_with_page):
+    """Выбор резюме не должен отправлять отклик — это делает основной флоу после письма."""
+    page = manager_with_page.page
+
+    option = MagicMock()
+    cell = MagicMock()
+    cell.count = AsyncMock(return_value=1)
+    cell.text_content = AsyncMock(return_value="Android разработчик")
+    title_holder = MagicMock()
+    title_holder.first = cell
+    option.locator = MagicMock(return_value=title_holder)
+
+    options_locator = MagicMock()
+    options_locator.first.wait_for = AsyncMock()
+    options_locator.all = AsyncMock(return_value=[option])
+
+    def _locate(selector):
+        if "magritte-select-option-" in selector:
+            return options_locator
+        return _make_locator(count=0)
+
+    page.locator = MagicMock(side_effect=_locate)
+
+    clicked = []
+
+    async def fake_click(_page, selector, **_kwargs):
+        clicked.append(selector)
+        return True
+
+    resume_component = MagicMock()
+    resume_component.job_title = "Android разработчик"
+
+    with (
+        patch("src.job_manager.playwright_manager.safe_click", side_effect=fake_click),
+        patch.object(manager_with_page, "pause_async", new_callable=AsyncMock),
+    ):
+        await manager_with_page._select_resume(resume_component)
+
+    assert any("magritte-select-option-" in s for s in clicked)
+    assert not any("vacancy-response-submit-popup" in s for s in clicked)

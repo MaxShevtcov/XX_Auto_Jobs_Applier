@@ -231,7 +231,8 @@ async def safe_fill(
 
         await target.fill(text)
 
-        logger.debug(f"Successfully filled '{selector}' with text {text}")
+        # НЕ логируем сам текст: через safe_fill вводятся логин/пароль и секреты
+        logger.debug(f"Successfully filled '{selector}' ({len(text)} chars)")
         return True
 
     except Exception as e:
