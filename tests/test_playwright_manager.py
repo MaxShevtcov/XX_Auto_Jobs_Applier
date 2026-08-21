@@ -698,3 +698,29 @@ async def test_select_resume_does_not_submit_popup(manager_with_page):
 
     assert any("magritte-select-option-" in s for s in clicked)
     assert not any("vacancy-response-submit-popup" in s for s in clicked)
+
+
+# ---------------------------------------------------------------------------
+# _get_first_name / _get_last_name
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_first_name_returns_empty_when_element_missing(manager_with_page):
+    """Если карточки имени нет на странице — возвращается пустая строка, а не Locator."""
+    no_element = MagicMock()
+    no_element.count = AsyncMock(return_value=0)
+    manager_with_page.page.locator = MagicMock(return_value=no_element)
+
+    assert await manager_with_page._get_first_name() == ""
+    assert await manager_with_page._get_last_name() == ""
+
+
+@pytest.mark.asyncio
+async def test_get_first_name_returns_text_when_present(manager_with_page):
+    el = MagicMock()
+    el.count = AsyncMock(return_value=1)
+    el.first.text_content = AsyncMock(return_value="Максим")
+    manager_with_page.page.locator = MagicMock(return_value=el)
+
+    assert await manager_with_page._get_first_name() == "Максим"

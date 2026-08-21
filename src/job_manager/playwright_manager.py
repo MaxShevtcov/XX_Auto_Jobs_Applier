@@ -1474,10 +1474,10 @@ class PlaywrightJobManager:
 
     async def _get_first_name(self) -> str:
         """Получает имя из профиля."""
-        first_name = self.page.locator('[data-qa="profile-common-card-firstname"]')
-        if await first_name.count() > 0:
-            first_name = await first_name.first.text_content()
-            first_name = sanitize_text(first_name, lowercase=False)
+        first_name = ""
+        el = self.page.locator('[data-qa="profile-common-card-firstname"]')
+        if await el.count() > 0:
+            first_name = sanitize_text((await el.first.text_content()) or "", lowercase=False)
         return first_name
 
     async def _get_other_links(self) -> Tuple[str, str]:
@@ -1533,10 +1533,10 @@ class PlaywrightJobManager:
 
     async def _get_last_name(self) -> str:
         """Получает фамилию."""
-        last_name = self.page.locator('[data-qa="profile-common-card-lastname"]')
-        if await last_name.count() > 0:
-            last_name = await last_name.first.text_content()
-            last_name = sanitize_text(last_name, lowercase=False)
+        last_name = ""
+        el = self.page.locator('[data-qa="profile-common-card-lastname"]')
+        if await el.count() > 0:
+            last_name = sanitize_text((await el.first.text_content()) or "", lowercase=False)
         return last_name
 
     async def _get_telegram(self) -> str:
