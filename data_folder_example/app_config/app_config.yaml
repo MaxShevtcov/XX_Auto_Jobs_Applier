@@ -41,7 +41,11 @@ MINIMUM_LOG_LEVEL: "DEBUG"
 LLM_MODEL_TYPE: "openai"
 
 # Модель LLM
-LLM_MODEL: "gpt-5.4-nano"
+LLM_MODEL: "big-pickle"
+
+# Базовый URL OpenAI-совместимого провайдера (OpenCode Zen и т.п.)
+# Если не задан - используется официальный API OpenAI
+LLM_BASE_URL: "https://opencode.ai/zen/v1"
 
 # Температура модели
 # чем она выше, тем креативнее модель, но могут случаться галлюцинации

@@ -33,6 +33,7 @@ load_dotenv()
 config = load_app_config()
 LLM_MODEL = config.get("LLM_MODEL", "gpt-5-nano")
 LLM_MODEL_TYPE = config.get("LLM_MODEL_TYPE", "openai")
+LLM_BASE_URL = config.get("LLM_BASE_URL", None)
 TEMPERATURE = config.get("TEMPERATURE", 0.4)
 
 
@@ -45,9 +46,16 @@ class AIModel(ABC):
 class OpenAIModel(AIModel):
     """Получить доступ к модели OpenAI"""
 
-    def __init__(self, api_key: str, llm_model: str, llm_proxy: Union[str, None] = None) -> None:
+    def __init__(
+        self,
+        api_key: str,
+        llm_model: str,
+        llm_proxy: Union[str, None] = None,
+        llm_base_url: Union[str, None] = None,
+    ) -> None:
         self.llm_proxy = llm_proxy
         self.model_name = llm_model
+        self.llm_base_url = llm_base_url
         self.openai_api_key = api_key
 
     def invoke(self, prompt: ChatPromptTemplate) -> BaseMessage:
@@ -63,19 +71,24 @@ class OpenAIModel(AIModel):
                     http_client = httpx.Client(proxy=proxy)
                 else:
                     http_client = None
-                model = ChatOpenAI(
-                    model_name=self.model_name,
-                    openai_api_key=self.openai_api_key,
-                    http_client=http_client,
-                    temperature=1
+                model_kwargs = {
+                    "model_name": self.model_name,
+                    "openai_api_key": self.openai_api_key,
+                    "http_client": http_client,
+                    "temperature": 1
                     if "o1" in self.model_name or "gpt-5" in self.model_name
                     else TEMPERATURE,
-                    presence_penalty=0,
-                    frequency_penalty=0,
-                    timeout=60,
+                    "presence_penalty": 0,
+                    "frequency_penalty": 0,
+                    "timeout": 60,
+                }
+                # сторонний OpenAI-совместимый провайдер (например, OpenCode Zen)
+                if self.llm_base_url:
+                    model_kwargs["base_url"] = self.llm_base_url
+                else:
                     # Минимизируем рассуждения, если модель это поддерживает.
-                    reasoning_effort="low",
-                )
+                    model_kwargs["reasoning_effort"] = "low"
+                model = ChatOpenAI(**model_kwargs)
                 response = model.invoke(prompt_messages)
                 return response
             except Exception:
@@ -231,7 +244,7 @@ class AIAdapter:
         if LLM_MODEL_TYPE == "gemini":
             return GeminiModel(api_key, LLM_MODEL, llm_proxy)
         elif LLM_MODEL_TYPE == "openai":
-            return OpenAIModel(api_key, LLM_MODEL, llm_proxy)
+            return OpenAIModel(api_key, LLM_MODEL, llm_proxy, llm_base_url=LLM_BASE_URL)
         # elif LLM_MODEL_TYPE == "gigachat":
         #     return GigaChatModel(api_key, LLM_MODEL)
         # elif LLM_MODEL_TYPE == "claude":
