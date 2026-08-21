@@ -130,7 +130,7 @@ class ResumeScraper:
         """Анонимазовать персональные данные путем подмены их на данные-пустышки"""
         if not ANONYMIZE:
             return
-        sex = self.personal_information.get("sex")
+        sex = self.personal_information.get("sex") or ""
         if sex.lower() == "женский":
             dummy_pesonal_info = DUMMY_PERSONAL_INFO_FEMALE
         else:
@@ -144,7 +144,7 @@ class ResumeScraper:
         """Анонимизировать текст резюме: заменить персональные данные на данные-пустышки"""
         if not ANONYMIZE:
             return input_
-        sex = self.resume_info["personal_information"].get("sex")
+        sex = self.resume_info["personal_information"].get("sex") or ""
         if sex.lower() == "женский":
             dummy_pesonal_info = DUMMY_PERSONAL_INFO_FEMALE
         else:
@@ -181,7 +181,7 @@ class ResumeScraper:
         """Деанонимазовать данные в ответе"""
         if not ANONYMIZE:
             return output
-        sex = self.personal_information.get("sex")
+        sex = self.personal_information.get("sex") or ""
         if sex.lower() == "женский":
             dummy_pesonal_info = DUMMY_PERSONAL_INFO_FEMALE
         else:

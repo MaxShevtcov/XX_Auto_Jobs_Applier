@@ -295,6 +295,21 @@ class TestAnonymizePersonalInformation:
 
         assert scraper.resume_info["personal_information"]["first_name"] == original_name
 
+    @patch("src.job_manager.resume_scraper.ANONYMIZE", True)
+    def test_handles_missing_sex_without_crash(self, mock_manager):
+        """sex отсутствует/None (не найден на странице) — не должно быть AttributeError."""
+        scraper = ResumeScraper(mock_manager, "Python Developer", "abc123", MagicMock())
+        scraper.resume_info = {"personal_information": {"first_name": "Максим", "sex": None}}
+        scraper.personal_information = {"first_name": "Максим", "sex": None}
+
+        scraper.anonymize_personal_information()
+
+        pi = scraper.resume_info["personal_information"]
+        assert pi["first_name"] == DUMMY_PERSONAL_INFO_MALE["first_name"]
+
+        output = scraper.deanonymize_personal_information(pi["first_name"])
+        assert output == "Максим"
+
 
 class TestAnonymizeText:
     @patch("src.job_manager.resume_scraper.ANONYMIZE", True)
