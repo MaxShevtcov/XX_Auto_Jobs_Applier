@@ -41,7 +41,7 @@ MINIMUM_LOG_LEVEL: "DEBUG"
 LLM_MODEL_TYPE: "openai"
 
 # Модель LLM
-LLM_MODEL: "big-pickle"
+LLM_MODEL: deepseek-v4-flash
 
 # Базовый URL OpenAI-совместимого провайдера (OpenCode Zen и т.п.)
 # Если не задан - используется официальный API OpenAI
