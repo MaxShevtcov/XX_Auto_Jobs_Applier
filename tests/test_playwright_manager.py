@@ -724,3 +724,60 @@ async def test_get_first_name_returns_text_when_present(manager_with_page):
     manager_with_page.page.locator = MagicMock(return_value=el)
 
     assert await manager_with_page._get_first_name() == "Максим"
+
+
+# ---------------------------------------------------------------------------
+# _set_keywords / _set_search_field (новый интерфейс расширенного поиска)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_set_keywords_uses_new_search_input_first(manager_with_page):
+    """Ключевые слова вводятся в новый инпут search-input."""
+    page = manager_with_page.page
+    search_input = _make_locator(count=1)
+    _route_locators(page, {"search-input": search_input})
+
+    fills = []
+
+    async def fake_fill(_page, selector, text, **_kwargs):
+        fills.append(selector)
+        return True
+
+    with (
+        patch("src.job_manager.playwright_manager.safe_fill", side_effect=fake_fill),
+        patch.object(
+            manager_with_page,
+            "_click_best_suggestion",
+            new=AsyncMock(return_value=False),
+        ),
+        patch.object(manager_with_page, "pause_async", new_callable=AsyncMock),
+    ):
+        manager_with_page.search_params = {"keywords": "Android разработчик"}
+        await manager_with_page._set_keywords()
+
+    assert fills[0] == "[data-qa='search-input']"
+
+
+@pytest.mark.asyncio
+async def test_set_search_field_selects_short_description_radio(manager_with_page):
+    """name=true в новом интерфейсе -> выбирается радио short_description."""
+    page = manager_with_page.page
+    radio = _make_locator(count=1)
+    _route_locators(page, {"short_description": radio})
+
+    clicks = []
+
+    async def fake_click(_page, selector, **_kwargs):
+        clicks.append(selector)
+        return True
+
+    with (
+        patch("src.job_manager.playwright_manager.safe_click", side_effect=fake_click),
+        patch.object(manager_with_page, "pause_async", new_callable=AsyncMock),
+    ):
+        manager_with_page.search_params = {"search_field": {"name": True}}
+        await manager_with_page._set_search_field()
+
+    assert any("short_description" in s for s in clicks)
+    assert not any("full_description" in s for s in clicks)

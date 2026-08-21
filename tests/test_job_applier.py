@@ -822,3 +822,96 @@ class TestSendResponse:
             result = await applier_with_params.send_repsonse(_make_vacancy())
 
         assert result == "Limit"
+
+
+class TestApplyJobTelegramSend:
+    """Сопроводительное письмо уходит в Telegram ровно один раз на вакансию."""
+
+    @pytest.mark.asyncio
+    async def test_normal_mode_no_premature_send(self, applier_with_params, mock_manager):
+        """Боевой режим: apply_job НЕ отправляет письмо — это делает send_repsonse."""
+        with (
+            patch("src.job_manager.job_applier.SEARCH_MODE", False),
+            patch.object(applier_with_params, "_save_job_description"),
+        ):
+            applier_with_params.telegram_report_sender.send_job_description = AsyncMock()
+            applier_with_params.gpt_answerer.write_cover_letter.return_value = "Письмо"
+            applier_with_params.resume_component.deanonymize_personal_information.side_effect = (
+                lambda x: x
+            )
+            mock_manager.apply_to_vacancy.return_value = ("Success", "")
+
+            await applier_with_params.apply_job(
+                {"id": "1", "alternate_url": "https://hh.ru/vacancy/1"},
+                "Компания",
+                "Вакансия",
+                {"vacancy_id": "1", "skills": ""},
+                {"score": 80},
+            )
+
+            assert applier_with_params.telegram_report_sender.send_job_description.await_count == 0
+
+    @pytest.mark.asyncio
+    async def test_search_mode_sends_preview_once(self, applier_with_params, mock_manager):
+        """SEARCH_MODE: превью письма отправляется один раз, отклик не делается."""
+        with (
+            patch("src.job_manager.job_applier.SEARCH_MODE", True),
+            patch.object(applier_with_params, "_save_job_description"),
+            patch.object(applier_with_params, "_update_skill_stat"),
+        ):
+            applier_with_params.telegram_report_sender.send_job_description = AsyncMock()
+            applier_with_params.gpt_answerer.write_cover_letter.return_value = "Письмо"
+            applier_with_params.resume_component.deanonymize_personal_information.side_effect = (
+                lambda x: x
+            )
+
+            result, reason = await applier_with_params.apply_job(
+                {"id": "1", "alternate_url": "https://hh.ru/vacancy/1"},
+                "Компания",
+                "Вакансия",
+                {"vacancy_id": "1", "skills": ""},
+                {"score": 80},
+            )
+
+            assert (result, reason) == ("Skip", "SEARCH_MODE")
+            assert applier_with_params.telegram_report_sender.send_job_description.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_full_flow_sends_exactly_once(self, applier_with_params, mock_manager):
+        """Регрессия на дубли: полный цикл send_repsonse -> одно письмо в Telegram."""
+        with (
+            patch("src.job_manager.job_applier.SEARCH_MODE", False),
+            patch.object(applier_with_params, "_save_job_description"),
+            patch.object(applier_with_params, "_write_the_last_search_time"),
+            patch.object(applier_with_params, "_save_company"),
+            patch.object(applier_with_params, "_collect_job_info"),
+            patch(
+                "src.job_manager.job_applier.sleep"
+            ),  # sync sleep после минимального времени отклика
+            patch.object(
+                applier_with_params,
+                "scrape_vacancy",
+                new=AsyncMock(
+                    return_value={
+                        "job_title": "Вакансия",
+                        "vacancy_id": "1",
+                        "company_id": "c1",
+                        "company_name": "Компания",
+                    }
+                ),
+            ),
+        ):
+            sender = AsyncMock()
+            applier_with_params.telegram_report_sender.send_job_description = sender
+            applier_with_params.gpt_answerer.write_cover_letter.return_value = "Письмо"
+            applier_with_params.resume_component.deanonymize_personal_information.side_effect = (
+                lambda x: x
+            )
+            applier_with_params.gpt_answerer.job_is_interesting.return_value = {"score": 80}
+            mock_manager.apply_to_vacancy.return_value = ("Success", "")
+            vacancy = {"id": "1", "name": "Вакансия", "alternate_url": "https://hh.ru/vacancy/1"}
+
+            result = await applier_with_params.send_repsonse(vacancy)
+
+            assert result == "Success"
+            assert sender.await_count == 1

@@ -363,7 +363,9 @@ class PlaywrightJobManager:
         await self._handle_interfering_messages()
         # 4) Запускаем поиск
         if not await safe_click(
-            self.page, "[data-qa='advanced-search-submit-button']", timeout=10000
+            self.page, "[data-qa='search-button']", timeout=10000
+        ) and not await safe_click(
+            self.page, "[data-qa='advanced-search-submit-button']", timeout=5000
         ):
             await safe_click(
                 self.page, "xpath=//*[text()='Найти' or text()='Найти вакансии']", timeout=10000
@@ -439,13 +441,18 @@ class PlaywrightJobManager:
         keywords = str(keywords).strip()
         if not keywords:
             return
-        await safe_fill(
-            self.page, "[data-qa='vacancysearch__keywords-input']", keywords, timeout=10000
+        # Новый интерфейс hh.ru использует общий поисковый инпут
+        filled = await safe_fill(
+            self.page, "[data-qa='search-input']", keywords, timeout=10000
         )
-        # await self.pause_async(0.5, 1)
-        # await self.page.keyboard.press("ArrowDown")
-        # await self.pause_async(0.5, 1)
-        # await self.page.keyboard.press("Enter")
+        if not filled:
+            # Откат: старый инпут расширенного поиска
+            await safe_fill(
+                self.page,
+                "[data-qa='vacancysearch__keywords-input']",
+                keywords,
+                timeout=10000,
+            )
         suggestion_xpath = (
             "//*[@data-qa='suggest-item-cell' or @data-qa='suggester__keywords-item']"
         )
@@ -460,8 +467,32 @@ class PlaywrightJobManager:
         if not enabled:
             return
 
-        # Новый расширенный поиск HH использует чекбоксы: name="search_field", value in {name, company_name, description}
-        # Сначала кликаем по input/label (стабильнее), затем откат к поиску по тексту.
+        # Новый интерфейс hh.ru: радио-пары short_description (краткое описание -
+        # название и компания) / full_description (полное описание).
+        # Отдельной опции "только название" больше нет.
+        if "name" in enabled or "company_name" in enabled:
+            clicked = await safe_click(
+                self.page,
+                "xpath=//label[.//input[@data-qa='short_description']]",
+                timeout=10000,
+            )
+            if not clicked:
+                await safe_click(self.page, "[data-qa='short_description']", timeout=5000)
+
+        if "description" in enabled:
+            clicked = await safe_click(
+                self.page,
+                "xpath=//label[.//input[@data-qa='full_description']]",
+                timeout=10000,
+            )
+            if not clicked:
+                await safe_click(self.page, "[data-qa='full_description']", timeout=5000)
+            return
+
+        if not {"name", "company_name"} & enabled:
+            return
+
+        # Откат: старый интерфейс с чекбоксами name/company_name/description
         for key in ("name", "company_name", "description"):
             if key not in enabled:
                 continue
@@ -469,7 +500,7 @@ class PlaywrightJobManager:
             clicked = await safe_click(
                 self.page,
                 f"xpath=//label[.//input[@name='search_field' and @value='{key}']]",
-                timeout=10000,
+                timeout=3000,
             )
             if not clicked:
                 # Старый вариант отката: клик по видимому тексту

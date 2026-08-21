@@ -354,10 +354,14 @@ class JobApplier:
                 )
                 self._save_job_description(job_description)
                 self.pending_job_description = job_description
-                try:
-                    await self.telegram_report_sender.send_job_description(job_description)
-                except Exception as e:
-                    logger.error(f"Error sending job description to Telegram: {e}")
+                if SEARCH_MODE:
+                    # превью письма только в режиме поиска; в боевом режиме письмо
+                    # будет отправлено один раз после успешного отклика (send_repsonse),
+                    # иначе в Telegram приходят дубли
+                    try:
+                        await self.telegram_report_sender.send_job_description(job_description)
+                    except Exception as e:
+                        logger.error(f"Error sending job description to Telegram: {e}")
             if SEARCH_MODE is True:
                 # если находимся в режиме поиска вакансий - не откликаемся на вакансии,
                 # только сохраняем данные о вакансиях + сопроводительные письма в файл
