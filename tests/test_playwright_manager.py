@@ -658,6 +658,80 @@ async def test_apply_to_vacancy_without_letter_submits(manager_with_page, has_co
 
 
 @pytest.mark.asyncio
+async def test_apply_to_vacancy_js_fallback_when_response_click_fails(manager_with_page):
+    """Если обычный клик по кнопке отклика не прошел, должен срабатывать JS-фолбэк."""
+    page = manager_with_page.page
+    page.url = "https://hh.ru/vacancy/1"
+    _route_locators(
+        page,
+        {
+            "task-body": _make_locator(0),
+            "vacancy-response-letter-informer": _make_locator(0),
+            "add-cover-letter": _make_locator(0),
+            "vacancy-response-submit-popup": _make_locator(count=1),
+        },
+    )
+
+    clicked_selectors = []
+
+    async def failing_for_response_links_click(_page, selector, **kwargs):
+        if "vacancy-response-link" in selector:
+            assert kwargs.get("timeout") == 10000
+            return False
+        clicked_selectors.append(selector)
+        return True
+
+    element = MagicMock()
+    element.evaluate = AsyncMock(return_value=None)
+    handle = MagicMock()
+    handle.as_element.return_value = element
+
+    async def fake_evaluate_handle(_script, _selector):
+        return handle
+
+    page.evaluate_handle = AsyncMock(side_effect=fake_evaluate_handle)
+
+    with (
+        patch(
+            "src.job_manager.playwright_manager.safe_click",
+            side_effect=failing_for_response_links_click,
+        ),
+        patch.object(manager_with_page, "pause_async", new_callable=AsyncMock),
+    ):
+        result, reason = await manager_with_page.apply_to_vacancy(
+            "https://hh.ru/vacancy/1", "", None, None
+        )
+
+    assert result == "Success"
+    assert reason == "Отклик отправлен"
+
+
+@pytest.mark.asyncio
+async def test_apply_to_vacancy_error_when_all_clicks_fail(manager_with_page):
+    """Если и обычный клик, и JS-фолбэк не удались - отклик завершается ошибкой."""
+    page = manager_with_page.page
+    page.url = "https://hh.ru/vacancy/1"
+
+    handle = MagicMock()
+    handle.as_element.return_value = None
+    page.evaluate_handle = AsyncMock(return_value=handle)
+
+    async def all_clicks_fail(_page, _selector, **_kwargs):
+        return False
+
+    with (
+        patch("src.job_manager.playwright_manager.safe_click", side_effect=all_clicks_fail),
+        patch.object(manager_with_page, "pause_async", new_callable=AsyncMock),
+    ):
+        result, reason = await manager_with_page.apply_to_vacancy(
+            "https://hh.ru/vacancy/1", "", None, None
+        )
+
+    assert result == "Error"
+    assert reason == "Кнопка отклика не найдена"
+
+
+@pytest.mark.asyncio
 async def test_select_resume_does_not_submit_popup(manager_with_page):
     """Выбор резюме не должен отправлять отклик — это делает основной флоу после письма."""
     page = manager_with_page.page

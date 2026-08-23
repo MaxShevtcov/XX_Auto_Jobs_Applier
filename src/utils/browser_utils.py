@@ -143,7 +143,8 @@ async def safe_click(
                     await target.click(timeout=timeout)
                     logger.debug(f"Successfully clicked: {selector} (match #{idx})")
                     return True
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"Click attempt #{idx} failed for '{selector}': {e}")
                     continue
             if not supress_warnings:
                 logger.warning(f"Failed to click any matched element '{selector}'")

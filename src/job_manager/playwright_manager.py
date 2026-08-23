@@ -1059,9 +1059,18 @@ class PlaywrightJobManager:
         apply_btn_bottom_selector = '[data-qa="vacancy-response-link-bottom"]'
 
         logger.info("Жмем кнопку 'Откликнуться'")
-        clicked = await safe_click(self.page, apply_btn_top_selector, click_all=True)
+        clicked = await safe_click(self.page, apply_btn_top_selector, timeout=10000, click_all=True)
         if not clicked:
-            clicked = await safe_click(self.page, apply_btn_bottom_selector, click_all=True)
+            clicked = await safe_click(
+                self.page, apply_btn_bottom_selector, timeout=10000, click_all=True
+            )
+
+        # Фолбэк: JS-клик напрямую, если обычный клик блокируется перекрытием или анимациями
+        if not clicked:
+            logger.warning("Обычный клик по кнопке отклика не прошел, пробуем клик через JS")
+            clicked = await self._js_click(apply_btn_top_selector) or await self._js_click(
+                apply_btn_bottom_selector
+            )
 
         if not clicked:
             # Проверяем, был ли уже отклик или другое состояние
@@ -1165,6 +1174,27 @@ class PlaywrightJobManager:
             return "Success", ""
 
         return "Error", "Кнопка отправки не найдена"
+
+    async def _js_click(self, selector: str) -> bool:
+        """Кликает по первому элементу через JS, когда обычный клик не проходит.
+
+        Работает только с CSS-селекторами (xpath не поддерживается querySelector).
+        """
+        if "xpath=" in selector:
+            return False
+        try:
+            handle = await self.page.evaluate_handle(
+                "(selector) => document.querySelector(selector)", selector
+            )
+            element = handle.as_element()
+            if element is None:
+                return False
+            await element.evaluate("(el) => el.click()")
+            logger.info(f"Клик через JS выполнен: {selector}")
+            return True
+        except Exception as e:
+            logger.warning(f"JS-клик не удался для '{selector}': {e}")
+            return False
 
     async def _select_resume(self, resume_component: Any) -> None:
         """Выбирает резюме из списка."""
