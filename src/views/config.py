@@ -144,6 +144,9 @@ class Secrets(BaseModel):
     tg_token: str
     tg_api_id: Optional[str] = ""
     tg_api_hash: Optional[str] = ""
+    # --- Опциональные ключи long-running режима ---
+    tg_control_topic_id: Optional[int] = None
+    tg_allowed_user_ids: Optional[List[int]] = []
 
     @field_validator("tg_api_id", mode="before")
     @classmethod
@@ -154,3 +157,25 @@ class Secrets(BaseModel):
             return v
         else:
             raise ValueError("tg_api_id должно быть строкой или числом")
+
+    @field_validator("tg_control_topic_id", mode="before")
+    @classmethod
+    def validate_tg_control_topic_id(cls, v):
+        """Допускаем строковое представление числа"""
+        if v is None or isinstance(v, int):
+            return v
+        if isinstance(v, str) and v.strip().lstrip("-").isdigit():
+            return int(v)
+        raise ValueError("tg_control_topic_id должно быть числом или отсутствовать")
+
+    @field_validator("tg_allowed_user_ids", mode="before")
+    @classmethod
+    def validate_tg_allowed_user_ids(cls, v):
+        """Строка '123,456' → [123, 456]; None/пусто → пустой список"""
+        if v is None or v == "":
+            return []
+        if isinstance(v, str):
+            return [int(item.strip()) for item in v.split(",") if item.strip()]
+        if isinstance(v, list):
+            return [int(item) for item in v]
+        return v

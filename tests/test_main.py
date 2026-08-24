@@ -153,7 +153,7 @@ class TestConfigValidator:
 
         validator = ConfigValidator()
         result = validator.validate_secrets(secrets_file)
-        assert result == valid_secrets
+        assert result == dict(valid_secrets, tg_control_topic_id=None, tg_allowed_user_ids=[])
 
     def test_missing_secret_key(self, temp_data_folder, valid_secrets):
         from main import ConfigError, ConfigValidator

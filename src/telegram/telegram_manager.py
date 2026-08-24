@@ -6,11 +6,11 @@ from telethon import TelegramClient
 
 from src.constants import SEARCH_CONFIG_FILE, SECRETS_FILE
 from src.logger_config import logger
+from src.telegram.ptb_request import build_ptb_request
 from src.utils.utils import load_yaml_file
 from src.views.job import JobDescription
 from telegram import Bot
 from telegram.error import TelegramError
-from telegram.request import HTTPXRequest
 
 
 # Send message with PTB
@@ -67,22 +67,7 @@ class TelegramReportSender:
 
     def __init__(self):
         secrets = load_yaml_file(SECRETS_FILE)
-        proxy_url = secrets.get("tg_proxy")
-        if not proxy_url:
-            llm_proxy = secrets.get("llm_proxy")
-            if isinstance(llm_proxy, list) and llm_proxy:
-                proxy_url = llm_proxy[0]
-            elif isinstance(llm_proxy, str) and llm_proxy:
-                proxy_url = llm_proxy
-
-        request = HTTPXRequest(
-            connection_pool_size=10,
-            pool_timeout=20,
-            read_timeout=20,
-            write_timeout=20,
-            connect_timeout=10,
-            proxy=proxy_url,
-        )
+        request = build_ptb_request(secrets)
         self.bot = Bot(token=secrets["tg_token"], request=request)
         self.chat_id = secrets["tg_chat_id"]
         self.report_topic_id = secrets["tg_report_topic_id"]
