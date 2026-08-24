@@ -73,6 +73,14 @@ async def build_application():
     scheduler = SearchScheduler(task_queue, store, runner=runner, errors_notifier=notify_errors)
     await scheduler.start()
 
+    from src.llm.cover_letter_service import CoverLetterService
+
+    cover_letter_service = CoverLetterService(
+        llm_api_key=secrets_validated["llm_api_key"],
+        llm_proxy=secrets_validated["llm_proxy"],
+        manager_factory=runner.get_manager,  # общий менеджер браузера на процесс
+    )
+
     router = TopicRouter(raw_secrets)
     bot = HhApplierBot(
         secrets=raw_secrets,
@@ -82,6 +90,7 @@ async def build_application():
         scheduler=scheduler,
         store=store,
         allowed_user_ids=secrets_validated.get("tg_allowed_user_ids") or [],
+        cover_letter_service=cover_letter_service,
     )
 
     return task_queue, runner, scheduler, bot
