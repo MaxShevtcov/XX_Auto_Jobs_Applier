@@ -34,6 +34,7 @@ data_folder/browser_session_my/*
 data_folder/secrets/secrets.yaml
 data_folder/search_config/search_config.yaml
 data_folder/search_config_tmp.yaml
+data_folder/schedule/schedule.yaml
 vps/search_config.json
 vps/secrets.json
 src/telegram/error_cache.yaml

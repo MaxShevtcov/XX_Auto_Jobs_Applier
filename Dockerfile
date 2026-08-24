@@ -21,10 +21,12 @@ RUN useradd -m -u 1000 appuser
 RUN mkdir -p /home/appuser/.cache && cp -r /root/.cache/ms-playwright /home/appuser/.cache/ && chown -R appuser:appuser /home/appuser/.cache
 
 COPY main.py ./
+COPY app_main.py ./
 COPY src/ ./src/
 
 RUN mkdir -p /app/data_folder /app/logs && chown -R appuser:appuser /app
 
 USER appuser
 
-CMD ["python", "main.py"]
+CMD ["python", "app_main.py"]
+

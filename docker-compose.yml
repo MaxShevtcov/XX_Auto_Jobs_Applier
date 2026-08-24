@@ -8,6 +8,11 @@ services:
     volumes:
       - ./data_folder:/app/data_folder
       - ./logs:/app/logs
-    restart: "no"
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
     # security_opt:
     #   - seccomp:unconfined
