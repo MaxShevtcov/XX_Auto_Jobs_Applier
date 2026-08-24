@@ -733,6 +733,7 @@ class GPTAnswerer:
         """
         # в зависимости от доступности того или иного контакта задаем его в промпте
         sex = self.resume["personal_information"].get("sex")
+        first_name = self.resume["personal_information"].get("first_name") or ""
         telegram = self.resume["personal_information"].get("telegram", "")
         whatsapp = self.resume["personal_information"].get("whatsapp", "")
         phone = self.resume["personal_information"].get("phone", "")
@@ -743,6 +744,7 @@ class GPTAnswerer:
             "resume": self.resume_readable,
             "job_description": self.job_readable,
             "sex": sex,
+            "first_name": first_name,
         }
         if telegram:
             additional_prompt += f"Telegram: {telegram}"
