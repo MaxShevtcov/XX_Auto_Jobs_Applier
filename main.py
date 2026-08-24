@@ -4,15 +4,10 @@ from pathlib import Path
 from typing import List
 
 from src.constants import SEARCH_CONFIG_FILE, SEARCH_CONFIG_FILE_TMP, SECRETS_FILE
-from src.job_manager.bot_facade import BotFacade
-from src.job_manager.job_applier import JobApplier
-from src.job_manager.playwright_manager import PlaywrightJobManager
-from src.job_manager.resume_scraper import ResumeScraper
-from src.job_manager.search_customizer import SearchCustomizer
-from src.llm.llm_manager import GPTAnswerer
+from src.job_manager.pipeline_runner import run_search_pipeline
 from src.logger_config import logger
-from src.views.config import SearchConfig, Secrets
 from src.utils.utils import load_yaml_file
+from src.views.config import SearchConfig, Secrets
 
 # TODO: create tests for json_to_readable, browser_utils
 # TODO: actualize tests
@@ -85,35 +80,7 @@ async def create_and_run_bot(
     secrets: dict, parameters: dict, llm_api_key: str, llm_proxy: List[str]
 ):
     """Запустить бот"""
-    if secrets.get("hh_login") and secrets.get("hh_password"):
-        parameters["hh_login"] = secrets["hh_login"]
-        parameters["hh_password"] = secrets["hh_password"]
-
-    job_title = parameters.get("job_title")
-
-    manager = PlaywrightJobManager(secrets)
-    await manager.initialize()
-
-    try:
-        gpt_answerer_component = GPTAnswerer(llm_api_key, llm_proxy)
-        resume_component = ResumeScraper(
-            manager, job_title, parameters.get("resume_id"), gpt_answerer_component
-        )
-        search_component = SearchCustomizer(manager)
-        apply_component = JobApplier(manager, resume_component, search_component)
-
-        bot = BotFacade(resume_component, search_component, apply_component)
-        await bot.set_parameters(parameters)
-        if not apply_component.check_the_last_search_time():
-            logger.warning("Последний поиск был меньше суток назад, завершаем работу")
-            return
-        await bot.set_resume()
-        bot.set_search_parameters(parameters)
-        bot.set_gpt_answerer(gpt_answerer_component, parameters)
-        # bot.set_resume_generator(resume_generator_manager, gpt_resume_genarator)
-        await bot.start_apply()
-    finally:
-        await manager.close()
+    await run_search_pipeline(secrets, parameters, llm_api_key, llm_proxy)
 
 
 async def main() -> None:
