@@ -49,6 +49,11 @@ LAST_RUN_FILE = "data_folder/output/last_run.yaml"
 LOGS_DIR = "logs"
 BROWSER_STORAGE_STATE = "data_folder/browser_session/hh_state.json"
 
+# Расписание автопоиска (long-running режим)
+SCHEDULE_FILE = "data_folder/schedule/schedule.yaml"
+DEFAULT_SCHEDULE_CRON = "0 9 * * *"
+DEFAULT_SCHEDULE_TZ = "Europe/Kaliningrad"
+
 # Словарь для подсчета стоимости запроса к модели
 PRICE_DICT = {
     "gpt-4o": {
