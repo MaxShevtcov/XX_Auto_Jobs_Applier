@@ -88,6 +88,39 @@ async def create_playwright_browser() -> tuple[Browser, BrowserContext, Page]:
         raise
 
 
+async def safe_goto(
+    page: Page,
+    url: str,
+    retries: int = 12,
+    timeout: int = 60000,
+    initial_wait: float = 15.0,
+    max_wait: float = 120.0,
+) -> None:
+    """Переход по URL с ретраями и нарастающей паузой.
+
+    Нужен из-за гео-троттлинга hh.ru: соединение периодически «мигает»,
+    поэтому повторяем попытки до нескольких минут.
+    Используем wait_until='domcontentloaded' вместо 'load' — дом HTML
+    загружается стабильнее, чем все CDN/изображения.
+    Если все попытки исчерпаны — бросаем исключение последней ошибки.
+    """
+    wait = initial_wait
+    last_error: Optional[Exception] = None
+    for attempt in range(1, retries + 1):
+        try:
+            await page.goto(url, timeout=timeout, wait_until="domcontentloaded")
+            return
+        except Exception as e:
+            last_error = e
+            logger.warning(f"goto '{url}' failed (attempt {attempt}/{retries}): {e}")
+            if attempt == retries:
+                break
+            logger.info(f"Повтор перехода через {wait} сек...")
+            await asyncio.sleep(wait)
+            wait = min(wait * 2, max_wait)
+    raise last_error
+
+
 async def save_browser_session(context: BrowserContext) -> None:
     """Save Playwright session state (async)"""
     try:

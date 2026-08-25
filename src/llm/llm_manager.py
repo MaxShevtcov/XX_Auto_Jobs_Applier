@@ -62,7 +62,10 @@ class OpenAIModel(AIModel):
         logger.info("Получен доступ к модели через OpenAI API")
         prompt_messages = [SystemMessage(content=prompts.custom_instructions)] + prompt.messages
         # случайно выбираем одну прокси за другой, пока запрос к LLM не пройдет
-        llm_proxies = self.llm_proxy.copy()
+        llm_proxies = self.llm_proxy.copy() if self.llm_proxy else []
+        if not llm_proxies:
+            # прокси не заданы — работаем напрямую
+            llm_proxies = [None]
         random.shuffle(llm_proxies)
 
         for proxy in llm_proxies:
@@ -115,7 +118,10 @@ class GeminiModel(AIModel):
         logger.info("Получен доступ к модели через Gemini API")
         prompt_messages = [SystemMessage(content=prompts.custom_instructions)] + prompt.messages
         # случайно выбираем одну прокси за другой, пока запрос к LLM не пройдет
-        llm_proxies = self.llm_proxy.copy()
+        llm_proxies = self.llm_proxy.copy() if self.llm_proxy else []
+        if not llm_proxies:
+            # прокси не заданы — работаем напрямую
+            llm_proxies = [None]
         random.shuffle(llm_proxies)
 
         for proxy in llm_proxies:

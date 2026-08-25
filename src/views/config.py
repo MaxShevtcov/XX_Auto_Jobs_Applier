@@ -140,7 +140,7 @@ class Secrets(BaseModel):
     hh_login: str
     hh_password: str
     llm_api_key: str
-    llm_proxy: List[str]
+    llm_proxy: Optional[List[str]] = []
     tg_token: str
     tg_api_id: Optional[str] = ""
     tg_api_hash: Optional[str] = ""

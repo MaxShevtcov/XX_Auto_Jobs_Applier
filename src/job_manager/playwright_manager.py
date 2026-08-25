@@ -16,6 +16,7 @@ from src.utils.browser_utils import (
     save_browser_session,
     safe_click,
     safe_fill,
+    safe_goto,
     get_clean_text,
 )
 from src.utils.utils import sanitize_text
@@ -129,7 +130,7 @@ class PlaywrightJobManager:
         """Проверяет, выполнен ли вход."""
         logger.info("Переходим на страницу входа...")
         try:
-            await self.page.goto("https://hh.ru/employer")
+            await safe_goto(self.page, "https://hh.ru/employer")
             logger.info("Переход на страницу: https://hh.ru/employer")
         except Exception as e:
             logger.warning(f"Не удалось перейти на страницу входа: {e}")
@@ -293,7 +294,7 @@ class PlaywrightJobManager:
     async def start_search(self, resume_id: str) -> None:
         """Начинает поиск вакансий для указанного резюме."""
         url = f"https://hh.ru/resume/{resume_id}"
-        await self.page.goto(url)
+        await safe_goto(self.page, url)
         logger.info(f"Переход на страницу: {url}")
         await safe_click(self.page, "xpath=//*[contains(text(), 'Подобрали для вас')]")
 
@@ -323,7 +324,7 @@ class PlaywrightJobManager:
                 "Кнопка расширенного поиска не найдена; пробуем открыть URL расширенного поиска"
             )
             try:
-                await self.page.goto("https://hh.ru/search/vacancy/advanced")
+                await safe_goto(self.page, "https://hh.ru/search/vacancy/advanced")
                 logger.info("Переход на страницу: https://hh.ru/search/vacancy/advanced")
             except Exception as e:
                 logger.error(f"Не удалось перейти на страницу расширенного поиска: {e}")
@@ -891,7 +892,7 @@ class PlaywrightJobManager:
                     new_url = urllib.parse.urlunparse(parsed._replace(query=new_query))
                     self.search_page_url = new_url
                     logger.info(f"Переходим на страницу {page_num}: {new_url}")
-                    await self.page.goto(new_url)
+                    await safe_goto(self.page, new_url)
                     await self.pause_async(2, 3)
         except Exception as e:
             logger.warning(f"Ошибка при обработке пагинации: {e}")
@@ -969,7 +970,7 @@ class PlaywrightJobManager:
 
     async def get_vacancy_full_info(self, vacancy_url: str) -> Dict[str, Any]:
         """Получает полную информацию о вакансии для LLM."""
-        await self.page.goto(vacancy_url)
+        await safe_goto(self.page, vacancy_url)
         logger.info(f"Переход на страницу: {vacancy_url}")
 
         async def get_text_or_empty(selector: str) -> str:
@@ -1049,7 +1050,7 @@ class PlaywrightJobManager:
         Результат: 'Success', 'Skip', 'Error', 'Limit'
         """
         if self.page.url != vacancy_url:
-            await self.page.goto(vacancy_url)
+            await safe_goto(self.page, vacancy_url)
             logger.info(f"Переход на страницу: {vacancy_url}")
 
         await self.pause_async(1, 2)
@@ -1389,7 +1390,7 @@ class PlaywrightJobManager:
         menu_selector = '[data-qa="mainmenu_profileAndResumes"]'
         clicked = await safe_click(self.page, menu_selector, timeout=10000)
         if not clicked:
-            await self.page.goto("https://hh.ru")
+            await safe_goto(self.page, "https://hh.ru")
             logger.info("Переход на страницу: https://hh.ru")
             await self.pause_async(1, 2)
             await safe_click(self.page, menu_selector, timeout=10000)
@@ -1450,7 +1451,7 @@ class PlaywrightJobManager:
         resume = {}
 
         user_profile_url = "https://hh.ru/profile/me"
-        await self.page.goto(user_profile_url)
+        await safe_goto(self.page, user_profile_url)
         logger.info(f"Переход на страницу: {user_profile_url}")
         await self.pause_async(3, 4)
 
@@ -1493,7 +1494,7 @@ class PlaywrightJobManager:
             resume["legal_authorization"] = legal_auth
 
         resume_url = f"https://hh.ru/resume/{resume_id}"
-        await self.page.goto(resume_url)
+        await safe_goto(self.page, resume_url)
         logger.info(f"Переход на страницу: {resume_url}")
         await self.pause_async(2, 3)
 
@@ -1518,7 +1519,7 @@ class PlaywrightJobManager:
         await self.raise_resume()
 
         resume_url = f"https://hh.ru/resume/edit/{resume_id}/about"
-        await self.page.goto(resume_url)
+        await safe_goto(self.page, resume_url)
         logger.info(f"Переход на страницу: {resume_url}")
         await self.pause_async(2, 3)
         resume["about_me"] = await self._get_about_me()
