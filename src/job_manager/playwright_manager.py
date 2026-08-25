@@ -65,10 +65,16 @@ class PlaywrightJobManager:
 
     async def _perform_login(self) -> bool:
         """Выполняет процесс входа."""
-        # Нажимаем кнопку входа
-        if not await safe_click(self.page, "[data-qa*='login']"):
-            logger.error("Кнопка входа не найдена")
-            return False
+        # Сначала пробуем кликнуть по кнопке входа с достаточным таймаутом
+        # (на медленной странице дефолтных 1 сек не хватает).
+        if not await safe_click(self.page, "[data-qa*='login']", timeout=10000):
+            # Фолбэк: сразу открываем страницу логина соискателя.
+            logger.warning("Кнопка входа не найдена, переходим на страницу логина напрямую")
+            try:
+                await safe_goto(self.page, "https://hh.ru/account/login")
+            except Exception as e:
+                logger.error(f"Не удалось открыть страницу логина: {e}")
+                return False
 
         # В некоторых случаях сначала появляется выбор типа аккаунта (работодатель/соискатель).
         # Всегда выбираем соискателя ("Я ищу работу").
@@ -108,6 +114,9 @@ class PlaywrightJobManager:
         # Нажимаем кнопку "Войти" (не нажимаем "Дальше" раньше времени)
         await safe_click(self.page, "//*[@data-qa='submit-button']", timeout=10000)
         await self.pause_async(2, 3)
+
+        # Если после сабмита появилась капча — решаем через Telegram
+        await self._handle_captcha(submit_selector="//*[@data-qa='submit-button']")
 
         # Проверяем наличие ошибок
         error_msg = self.page.locator("//*[@data-qa='account-login-error']")
