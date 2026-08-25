@@ -147,6 +147,10 @@ class Secrets(BaseModel):
     # --- Опциональные ключи long-running режима ---
     tg_control_topic_id: Optional[int] = None
     tg_allowed_user_ids: Optional[List[int]] = []
+    # Реальные имя и фамилия для подписи в сопроводительных письмах.
+    # Если не заданы - берутся из профиля hh.ru (может не сработать при смене разметки).
+    first_name: Optional[str] = ""
+    last_name: Optional[str] = ""
 
     @field_validator("tg_api_id", mode="before")
     @classmethod

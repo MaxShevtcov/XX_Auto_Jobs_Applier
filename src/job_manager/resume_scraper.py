@@ -4,10 +4,10 @@ from typing import Any, Dict, List, Tuple
 import yaml
 from Levenshtein import distance
 
-from src.constants import DUMMY_PERSONAL_INFO_FEMALE, DUMMY_PERSONAL_INFO_MALE
+from src.constants import DUMMY_PERSONAL_INFO_FEMALE, DUMMY_PERSONAL_INFO_MALE, SECRETS_FILE
 from src.job_manager.playwright_manager import PlaywrightJobManager
 from src.logger_config import logger
-from src.utils.utils import load_app_config
+from src.utils.utils import load_app_config, load_yaml_file
 from src.utils.json_to_readable import transform_resume_data
 
 config = load_app_config()
@@ -30,6 +30,11 @@ class ResumeScraper:
         self.resume_info["general_knowledge_questions"] = ""
         self.github_links = []
         self.gpt_answerer_component = gpt_answerer_component
+        # Имена из secrets.yaml имеют приоритет над скрейпингом профиля:
+        # разметка hh.ru меняется, и без них деканонизация подписи писем ломается
+        secrets = load_yaml_file(SECRETS_FILE)
+        self.configured_first_name = (secrets.get("first_name") or "").strip()
+        self.configured_last_name = (secrets.get("last_name") or "").strip()
 
     async def get_resume_parameters(self) -> Tuple[str, List[str]]:
         """Получить ID нужного резюме"""
@@ -79,6 +84,19 @@ class ResumeScraper:
             if not personal_information.get(key):
                 self.parse_contacts(self.resume_info.get("about_me"))
                 break
+        # Имена из конфига приоритетны: скрейпинг имени на hh.ru ненадёжен,
+        # а без реального имени деканонизация dummy-имени "Аристаний" не сработает
+        if self.configured_first_name:
+            personal_information["first_name"] = self.configured_first_name
+            self.resume_info["personal_information"]["first_name"] = self.configured_first_name
+        elif not personal_information.get("first_name"):
+            logger.warning(
+                "Имя не получено ни из конфига (first_name в secrets.yaml), ни из профиля hh.ru — "
+                "в подписи сопроводительных писем может остаться dummy-имя"
+            )
+        if self.configured_last_name:
+            personal_information["last_name"] = self.configured_last_name
+            self.resume_info["personal_information"]["last_name"] = self.configured_last_name
         self.personal_information = self.resume_info["personal_information"].copy()
         self.anonymize_personal_information()
         self.save_resume_info()
