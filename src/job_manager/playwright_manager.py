@@ -89,12 +89,23 @@ class PlaywrightJobManager:
         # Сначала вводим логин (email) — HH может требовать это перед переходом к форме пароля
         await self.pause_async(1, 2)
         logger.info("Вводим логин")
-        await safe_fill(
+        email_filled = await safe_fill(
             self.page,
             "//*[@data-qa='applicant-login-input-email']",
             self.login,
             wait_for_timeout=2000,
         )
+        if not email_filled:
+            # Фолбэк: универсальный селектор поля email
+            email_filled = await safe_fill(
+                self.page,
+                "input[type='email']",
+                self.login,
+                timeout=5000,
+            )
+        if not email_filled:
+            logger.error("Не удалось заполнить поле email на форме входа")
+            return False
 
         # Открываем форму пароля (кнопка "Войти с паролем")
         logger.info("Открываем форму пароля")
@@ -103,12 +114,22 @@ class PlaywrightJobManager:
 
         # Вводим пароль
         logger.info("Вводим пароль")
-        await safe_fill(
+        password_filled = await safe_fill(
             self.page,
             "//*[@data-qa='login-input-password' or @data-qa='applicant-login-input-password']",
             self.password,
             wait_for_timeout=10000,
         )
+        if not password_filled:
+            password_filled = await safe_fill(
+                self.page,
+                "input[type='password']",
+                self.password,
+                timeout=10000,
+            )
+        if not password_filled:
+            logger.error("Не удалось заполнить поле пароля на форме входа")
+            return False
         await self.pause_async(2, 3)
 
         # Нажимаем кнопку "Войти" (не нажимаем "Дальше" раньше времени)
@@ -202,33 +223,40 @@ class PlaywrightJobManager:
     async def _select_email_credential_type_if_present(self) -> None:
         """
         Переключает тип входа на Email, если выбран телефон.
-        Вход для соискателя HH может показывать переключатель типа учетных данных (ТЕЛЕФОН vs EMAIL).
-        Если присутствует и выбран ТЕЛЕФОН, переключается на EMAIL ("Почта").
+        Актуальная разметка HH: радио-кнопки [data-qa='credential-type-phone'] и
+        [data-qa='credential-type-email'], выбранное состояние помечается словом
+        'checked' в значении data-qa ("credential-type-phone checked").
         """
         if not self.page:
             return
 
-        switcher = self.page.locator("//*[@data-qa='credential-type-switch']")
-        if (await switcher.count()) == 0:
+        email_radio = self.page.locator("[data-qa='credential-type-email']")
+        if (await email_radio.count()) == 0:
+            logger.debug("Переключатель типа учётных данных не найден")
             return
 
-        # В разметке HH выбранное состояние может иметь data-qa="credential-type-PHONE checked"
-        phone_checked = self.page.locator("[data-qa*='credential-type-PHONE'][data-qa*='checked']")
-        if (await phone_checked.count()) == 0:
+        # Уже выбран email?
+        qa_value = await email_radio.first.get_attribute("data-qa")
+        if qa_value and "checked" in qa_value.lower():
             return
 
         logger.info("Обнаружен переключатель типа учётных данных. Переключаемся на EMAIL...")
         clicked = await safe_click(
             self.page,
-            "//*[@data-qa='credential-type-EMAIL']/ancestor::label[1]",
+            "//*[@data-qa='credential-type-email']/ancestor::label[1]",
             timeout=10000,
         )
         if not clicked:
-            await safe_click(
+            clicked = await safe_click(
                 self.page,
-                "//*[self::label or self::div][.//*[contains(., 'Почта')]]",
+                "[data-qa='credential-type-email']",
                 timeout=10000,
             )
+        if not clicked:
+            try:
+                await email_radio.first.check(timeout=10000)
+            except Exception as e:
+                logger.warning(f"Не удалось переключиться на EMAIL: {e}")
         await self.pause_async(0.5, 1)
 
     async def _handle_captcha(self, submit_selector: str):
