@@ -59,7 +59,9 @@ async def run_search_pipeline(
             manager, job_title, parameters.get("resume_id"), gpt_answerer_component
         )
         search_component = SearchCustomizer(manager)
-        apply_component = JobApplier(manager, resume_component, search_component)
+        apply_component = JobApplier(
+            manager, resume_component, search_component, update_schedule=not force
+        )
 
         bot = BotFacade(resume_component, search_component, apply_component)
 

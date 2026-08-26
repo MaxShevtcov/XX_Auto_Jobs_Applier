@@ -4,7 +4,7 @@ import time
 import traceback
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Set, Tuple
 
 import yaml
 
@@ -37,11 +37,19 @@ MAX_APPLIES_NUM = 100
 class JobApplier:
     """Класс для поиска и рассылки откликов работодателям"""
 
-    def __init__(self, manager: PlaywrightJobManager, resume_component: Any, search_component: Any):
+    def __init__(
+        self,
+        manager: PlaywrightJobManager,
+        resume_component: Any,
+        search_component: Any,
+        update_schedule: bool = True,
+    ):
         logger.info("Инициализация JobApplier")
         self.manager = manager
         self.resume_component = resume_component
         self.search_component = search_component
+        # force-запуски не должны сдвигать окно суточного лимита (расписание шедулера)
+        self.update_schedule = update_schedule
         self.gpt_answerer = None
         self.pending_job_description = None
         self.telegram_report_sender = TelegramReportSender()
@@ -52,6 +60,7 @@ class JobApplier:
         self.resume_vac_page_num = -1  # количество страниц с вакансиями, похожими на резюме
         self.error_num = 0
         self.total_applies_num = 0
+        self._seen_vacancy_ids: Set[str] = set()
         logger.info("JobApplier успешно инициализирован")
 
     def set_parameters(self, parameters: Dict[str, Any]):
@@ -162,7 +171,11 @@ class JobApplier:
     async def start_applying(self) -> None:
         """Разослать отклики всем работодателям на всех страницах"""
         # определяем время старта поиска
-        if self.cache.get("last_run"):
+        # force-запуск не сдвигает расписание: не трогаем last_run,
+        # чтобы шедулер продолжал работать по своему 24-часовому окну
+        if not self.update_schedule:
+            logger.info("Force-запуск: время последнего поиска не обновляется")
+        elif self.cache.get("last_run"):
             last_run = datetime.fromisoformat(self.cache["last_run"])
             # если это не первый запуск - увеличиваем время последнего поиска на 24 часа
             # и записываем его как последний поиск (во избежание дрейфа времени запуска программы)
@@ -176,6 +189,7 @@ class JobApplier:
         # запускаем поиск вакансий
         await self.search_component.start_search()
         # продолжаем пока не достигнем максимально допустимого числа откликов
+        previous_page_ids: Set[str] = set()
         while self.success_applies_num < self.max_applies_num and self.applies_num < 400:
             # идем по всем страницам пока они не закончатся
             vacancies = await self.get_vacancies_from_page(self.page_num)
@@ -183,7 +197,20 @@ class JobApplier:
                 if self.page_num == 0:
                     logger.warning("По данному поисковому запросу не найдено ни одной вакансии")
                 break
+            current_page_ids = {self._vacancy_key(v) for v in vacancies}
+            if current_page_ids == previous_page_ids:
+                logger.warning(
+                    f"Страница {self.page_num} вернула те же вакансии, что и предыдущая - "
+                    "останавливаем пагинацию"
+                )
+                break
+            previous_page_ids = current_page_ids
             for vacancy in vacancies:
+                vacancy_key = self._vacancy_key(vacancy)
+                if vacancy_key in self._seen_vacancy_ids:
+                    logger.debug(f"Вакансия уже встречалась в этом запуске, пропускаем: {vacancy.get('alternate_url')}")
+                    continue
+                self._seen_vacancy_ids.add(vacancy_key)
                 url = vacancy.get("alternate_url")
                 try:
                     result = await self.send_repsonse(vacancy)
@@ -221,6 +248,11 @@ class JobApplier:
                 logger.info("Отсылаем отчёт о проделанной работе в Telegram")
                 self.send_report()
                 self._write_the_last_search_time()
+
+    @staticmethod
+    def _vacancy_key(vacancy: Dict[str, Any]) -> str:
+        """Уникальный ключ вакансии для дедупликации внутри запуска"""
+        return str(vacancy.get("id") or vacancy.get("alternate_url") or "")
 
     async def send_repsonse(self, vacancy: Dict[str, Any]) -> str:
         """Разослать отклики всем работодателям на странице"""
