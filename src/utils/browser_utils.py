@@ -162,6 +162,13 @@ async def safe_click(
                     f"Found {element_count} elements for selector '{selector}', trying all until one click succeeds"
                 )
             for idx in range(element_count):
+                # Если элементы исчезли из DOM после предыдущей попытки (например,
+                # успешный клик уже вызвал навигацию/открытие модалки) - прекращаем
+                if await locator.count() == 0:
+                    logger.debug(
+                        f"Elements for '{selector}' disappeared from DOM, stopping click attempts"
+                    )
+                    return False
                 target = locator.nth(idx)
                 try:
                     try:

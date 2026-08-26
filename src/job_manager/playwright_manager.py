@@ -1079,14 +1079,66 @@ class PlaywrightJobManager:
 
             message_was_processed = False
 
+    # Селекторы, по наличию хотя бы одного из которых понимаем, что форма отклика открылась
+    _RESPONSE_FORM_SELECTORS = (
+        '[data-qa="vacancy-response-submit-popup"]',
+        '[data-qa="vacancy-response-letter-informer"]',
+        '[data-qa="add-cover-letter"]',
+        '[data-qa="vacancy-response-popup-form-letter-input"]',
+        "[data-qa='resume-title']",
+    )
+
+    async def _is_response_form_opened(self) -> bool:
+        """Проверяет, открылась ли реально форма отклика (модалка или страница отклика)."""
+        combined_selector = ", ".join(self._RESPONSE_FORM_SELECTORS)
+        try:
+            await self.page.locator(combined_selector).first.wait_for(
+                state="attached", timeout=5000
+            )
+            return True
+        except Exception:
+            pass
+        # hh.ru иногда не открывает модалку, а редиректит на страницу отклика
+        return "vacancy_response" in (self.page.url or "")
+
     async def apply_to_vacancy(
         self, vacancy_url: str, cover_letter: str, gpt_answerer: Any, resume_component: Any
     ) -> Tuple[str, str]:
         """
-        Откликается на вакансию. Возвращает (Результат, Сообщение).
+        Откликается на вакансию с повторными попытками. Возвращает (Результат, Сообщение).
         Результат: 'Success', 'Skip', 'Error', 'Limit'
         """
-        if self.page.url != vacancy_url:
+        max_attempts = 3
+        result, msg = "Error", "Неизвестная ошибка"
+        for attempt in range(1, max_attempts + 1):
+            try:
+                result, msg = await self._apply_to_vacancy_attempt(
+                    vacancy_url,
+                    cover_letter,
+                    gpt_answerer,
+                    resume_component,
+                    force_reload=attempt > 1,
+                )
+            except Exception as e:
+                logger.error(f"Ошибка при отклике (попытка {attempt}/{max_attempts}): {e}")
+                result, msg = "Error", str(e)
+            if result != "Error" or attempt == max_attempts:
+                return result, msg
+            logger.warning(f"Попытка {attempt}/{max_attempts} не удалась: {msg}. Повторяем")
+            await self.pause_async(2, 4)
+
+        return result, msg
+
+    async def _apply_to_vacancy_attempt(
+        self,
+        vacancy_url: str,
+        cover_letter: str,
+        gpt_answerer: Any,
+        resume_component: Any,
+        force_reload: bool = False,
+    ) -> Tuple[str, str]:
+        """Одна попытка отклика на вакансию."""
+        if force_reload or self.page.url != vacancy_url:
             await safe_goto(self.page, vacancy_url)
             logger.info(f"Переход на страницу: {vacancy_url}")
 
@@ -1103,16 +1155,28 @@ class PlaywrightJobManager:
                 self.page, apply_btn_bottom_selector, timeout=10000, click_all=True
             )
 
-        # Фолбэк: JS-клик напрямую, если обычный клик блокируется перекрытием или анимациями
-        if not clicked:
+        # Клик мог сработать, даже если safe_click вернул False: Playwright считает
+        # ошибкой таймаут «waiting for scheduled navigations» уже ПОСЛЕ выполненного клика.
+        # Поэтому проверяем фактическое состояние страницы, а не только результат клика.
+        form_opened = await self._is_response_form_opened()
+
+        # Фолбэк: JS-клик напрямую, если форма не открылась
+        # (обычный клик блокируется перекрытием или анимациями)
+        if not form_opened:
             logger.warning("Обычный клик по кнопке отклика не прошел, пробуем клик через JS")
-            clicked = await self._js_click(apply_btn_top_selector) or await self._js_click(
+            js_clicked = await self._js_click(apply_btn_top_selector) or await self._js_click(
                 apply_btn_bottom_selector
             )
+            if js_clicked:
+                form_opened = await self._is_response_form_opened()
 
-        if not clicked:
-            # Проверяем, был ли уже отклик или другое состояние
-            return "Error", "Кнопка отклика не найдена"
+        if not form_opened:
+            reason = (
+                "Кнопка отклика не найдена"
+                if not clicked
+                else "Форма отклика не открылась после нажатия кнопки"
+            )
+            return "Error", reason
 
         await self.pause_async(1, 2)
 

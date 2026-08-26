@@ -561,6 +561,9 @@ async def test_apply_to_vacancy_opens_letter_form_before_submit(manager_with_pag
         patch("src.job_manager.playwright_manager.safe_click", side_effect=fake_click),
         patch("src.job_manager.playwright_manager.safe_fill", side_effect=fake_fill),
         patch.object(manager_with_page, "pause_async", new_callable=AsyncMock),
+        patch.object(
+            manager_with_page, "_is_response_form_opened", new_callable=AsyncMock, return_value=True
+        ),
     ):
         result, reason = await manager_with_page.apply_to_vacancy(
             "https://hh.ru/vacancy/1", "Тестовое письмо", None, None
@@ -616,6 +619,10 @@ async def test_apply_to_vacancy_fails_if_letter_not_filled(manager_with_page):
         patch("src.job_manager.playwright_manager.safe_click", side_effect=tracking_click),
         patch("src.job_manager.playwright_manager.safe_fill", side_effect=failing_fill),
         patch.object(manager_with_page, "pause_async", new_callable=AsyncMock),
+        patch("src.job_manager.playwright_manager.safe_goto", new_callable=AsyncMock),
+        patch.object(
+            manager_with_page, "_is_response_form_opened", new_callable=AsyncMock, return_value=True
+        ),
     ):
         result, reason = await manager_with_page.apply_to_vacancy(
             "https://hh.ru/vacancy/1", "Тестовое письмо", None, None
@@ -649,6 +656,9 @@ async def test_apply_to_vacancy_without_letter_submits(manager_with_page, has_co
     with (
         patch("src.job_manager.playwright_manager.safe_click", side_effect=fake_click),
         patch.object(manager_with_page, "pause_async", new_callable=AsyncMock),
+        patch.object(
+            manager_with_page, "_is_response_form_opened", new_callable=AsyncMock, return_value=True
+        ),
     ):
         result, _ = await manager_with_page.apply_to_vacancy(
             "https://hh.ru/vacancy/1", "", None, None
@@ -691,12 +701,16 @@ async def test_apply_to_vacancy_js_fallback_when_response_click_fails(manager_wi
 
     page.evaluate_handle = AsyncMock(side_effect=fake_evaluate_handle)
 
+    # форма открывается только после JS-клика
+    form_opened_mock = AsyncMock(side_effect=[False, True])
+
     with (
         patch(
             "src.job_manager.playwright_manager.safe_click",
             side_effect=failing_for_response_links_click,
         ),
         patch.object(manager_with_page, "pause_async", new_callable=AsyncMock),
+        patch.object(manager_with_page, "_is_response_form_opened", form_opened_mock),
     ):
         result, reason = await manager_with_page.apply_to_vacancy(
             "https://hh.ru/vacancy/1", "", None, None
@@ -722,6 +736,13 @@ async def test_apply_to_vacancy_error_when_all_clicks_fail(manager_with_page):
     with (
         patch("src.job_manager.playwright_manager.safe_click", side_effect=all_clicks_fail),
         patch.object(manager_with_page, "pause_async", new_callable=AsyncMock),
+        patch("src.job_manager.playwright_manager.safe_goto", new_callable=AsyncMock),
+        patch.object(
+            manager_with_page,
+            "_is_response_form_opened",
+            new_callable=AsyncMock,
+            return_value=False,
+        ),
     ):
         result, reason = await manager_with_page.apply_to_vacancy(
             "https://hh.ru/vacancy/1", "", None, None

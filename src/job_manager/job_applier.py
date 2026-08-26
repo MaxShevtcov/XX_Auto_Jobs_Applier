@@ -303,7 +303,7 @@ class JobApplier:
                 apply_result = "Skip", "Вакансия не интересна"
                 logger.debug("Вакансия не интересна, пропускаем")
 
-        result, _ = apply_result
+        result, reason = apply_result
         # если находимся в одном из режимов сбора информации - не ведем статистику по вакансиям
         if SEARCH_MODE is True or SKILL_STAT_MODE is True:
             return "OK"
@@ -327,6 +327,16 @@ class JobApplier:
                     )
                 except Exception as e:
                     logger.error(f"Error sending job description to Telegram: {e}")
+        elif result == "Error" and self.pending_job_description:
+            # письмо уже сгенерировано, но отклик не прошел - отправляем его клиенту
+            # с пометкой о неудаче, чтобы вакансия не потерялась
+            self.pending_job_description.apply_status = reason or "неизвестная ошибка"
+            try:
+                await self.telegram_report_sender.send_job_description(
+                    self.pending_job_description
+                )
+            except Exception as e:
+                logger.error(f"Error sending failed job description to Telegram: {e}")
         if result != "Limit":
             self._save_company(job, apply_result, vacancy)
         # если страница была обработана быстрее, чем за минимальное время -
@@ -578,6 +588,10 @@ class JobApplier:
             "reason": reason,
             "timestamp": datetime.now().isoformat(),
         }
+        # для неудачных откликов сохраняем сгенерированное письмо, чтобы его можно
+        # было использовать повторно (например, при ручном отклике)
+        if result != "Success" and self.pending_job_description:
+            job_info["cover_letter"] = self.pending_job_description.cover_letter
 
         # Проверяем по company_id и/или по названию вакансии
         if company_id and company_id in seen_companies:

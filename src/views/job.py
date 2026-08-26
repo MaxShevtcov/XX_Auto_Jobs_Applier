@@ -46,3 +46,4 @@ class JobDescription(BaseModel):
     skills: List[str] = []
     cover_letter: str = ""
     job_score: int = 0
+    apply_status: str = ""

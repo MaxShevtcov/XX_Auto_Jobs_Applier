@@ -175,10 +175,14 @@ class TelegramReportSender:
     def _format_job_message(self, job_description: JobDescription) -> str:
         skills_str = ", ".join(job_description.skills) if job_description.skills else "—"
         cover_letter = html.escape(job_description.cover_letter or "")
+        status_line = ""
+        if job_description.apply_status:
+            status_line = f"⚠️ Отклик не отправлен: {html.escape(job_description.apply_status)}\n"
         return (
             f"📋 <b>{html.escape(job_description.job_title or '')}</b>\n"
             f"🏢 {html.escape(job_description.company_name or '')}\n"
             f"⭐ Оценка: {job_description.job_score}\n"
+            f"{status_line}"
             f"🛠 Навыки: {html.escape(skills_str)}\n"
             f"🔗 {html.escape(job_description.link or '')}\n\n"
             f"<b>Сопроводительное письмо:</b>\n{cover_letter}"
