@@ -83,7 +83,7 @@ class OpenAIModel(AIModel):
                     else TEMPERATURE,
                     "presence_penalty": 0,
                     "frequency_penalty": 0,
-                    "timeout": 60,
+                    "timeout": 300,
                 }
                 # сторонний OpenAI-совместимый провайдер (например, OpenCode Zen)
                 if self.llm_base_url:
