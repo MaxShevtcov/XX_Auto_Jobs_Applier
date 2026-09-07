@@ -1,7 +1,12 @@
 from typing import List, Optional, Tuple
 
 from src.application.search_runner import SearchRunner
-from src.application.task_queue import SOURCE_MANUAL_SEARCH, Task, TaskQueue
+from src.application.task_queue import (
+    SOURCE_MANUAL_SEARCH,
+    SOURCE_MANUAL_TELEGRAM_SEARCH,
+    Task,
+    TaskQueue,
+)
 from src.logger_config import logger
 from src.telegram.progress_messenger import ProgressMessenger
 from src.telegram.ptb_request import build_ptb_request
@@ -58,6 +63,7 @@ def build_menu_keyboard(enabled: bool = True) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
             [InlineKeyboardButton("🔍 Искать вакансии сейчас", callback_data="search:now")],
+            [InlineKeyboardButton("📣 Искать в Telegram", callback_data="tgsearch:now")],
             [InlineKeyboardButton("⏰ Текущее расписание", callback_data="schedule:view")],
             [InlineKeyboardButton("✏️ Изменить расписание", callback_data="schedule:set")],
             [InlineKeyboardButton(toggle_label, callback_data="schedule:toggle")],
@@ -83,6 +89,8 @@ class HhApplierBot:
         store=None,
         allowed_user_ids: Optional[List[int]] = None,
         cover_letter_service=None,
+        telegram_search_runner=None,
+        telegram_search_scheduler=None,
     ):
         self.secrets = secrets
         self.router = router
@@ -91,6 +99,8 @@ class HhApplierBot:
         self.scheduler = scheduler
         self.store = store
         self.cover_letter_service = cover_letter_service
+        self.telegram_search_runner = telegram_search_runner
+        self.telegram_search_scheduler = telegram_search_scheduler
         self.allowed_user_ids = [int(u) for u in (allowed_user_ids or []) if str(u).strip()]
         self.chat_id = secrets.get("tg_chat_id")
         self._app: Optional[Application] = None
@@ -222,6 +232,11 @@ class HhApplierBot:
                 lines.append(f"⏰ Следующий автозапуск: {times[0].strftime('%d.%m %H:%M %Z')}")
         else:
             lines.append("⏰ Автозапуск отключён")
+        if self.telegram_search_scheduler is not None:
+            next_tg = self.telegram_search_scheduler.next_fire_time()
+            lines.append(
+                f"📣 Следующая проверка Telegram: {next_tg.strftime('%d.%m %H:%M %Z') if next_tg else 'отключена'}"
+            )
         return "\n".join(lines)
 
     # ---------- Callback-кнопки ----------
@@ -243,6 +258,8 @@ class HhApplierBot:
             await self.send_control(context, self.build_status_text())
         elif data == "search:now":
             await self.on_search_now(update, context)
+        elif data == "tgsearch:now":
+            await self._start_manual_telegram_search(context)
         elif data == "search:confirm:force":
             await self._start_manual_search(context, force=True)
         elif data == "search:cancel":
@@ -367,6 +384,40 @@ class HhApplierBot:
         reason = result.get("stopped_reason") or "все вакансии обработаны"
         await self.send_control_direct(
             f"✅ Поиск завершён: {success} откликов\nПричина остановки: {reason}"
+        )
+
+    # ---------- Поиск по публичным Telegram-каналам ----------
+
+    async def cmd_tgsearch(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if not self._authorized(update):
+            return
+        await self._start_manual_telegram_search(context)
+
+    async def _start_manual_telegram_search(self, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if self.telegram_search_runner is None:
+            await self.send_control(context, "⚠️ Telegram-поиск не настроен: добавьте data_folder/sources.yaml")
+            return
+        task = Task(
+            source=SOURCE_MANUAL_TELEGRAM_SEARCH,
+            coro_factory=self.telegram_search_runner.run_search,
+            dedupe_key="telegram_search",
+            on_done=self._on_telegram_search_done,
+        )
+        position = self.task_queue.enqueue(task)
+        if position is None:
+            await self.send_control(context, "⏳ Telegram-поиск уже выполняется или очередь переполнена")
+        elif position == 1:
+            await self.send_control(context, "🚀 Проверяю публичные Telegram-каналы…")
+        else:
+            await self.send_control(context, f"⏳ Telegram-поиск в очереди: {position}")
+
+    async def _on_telegram_search_done(self, result) -> None:
+        if isinstance(result, Exception):
+            await self.send_control_direct(f"❌ Ошибка Telegram-поиска: {result}")
+            return
+        await self.send_control_direct(
+            f"✅ Telegram-поиск завершён: проверено {result.get('checked', 0)}, "
+            f"отправлено в «Отклики» {result.get('sent', 0)}"
         )
 
     # ---------- Меню управления расписанием ----------
@@ -563,6 +614,7 @@ class HhApplierBot:
         app.add_handler(CommandHandler("menu", self.cmd_menu))
         app.add_handler(CommandHandler("status", self.cmd_status))
         app.add_handler(CommandHandler("search", self.cmd_search))
+        app.add_handler(CommandHandler("tgsearch", self.cmd_tgsearch))
         app.add_handler(CommandHandler("letter", self.cmd_letter))
         app.add_handler(CommandHandler("cancel", self.cmd_cancel))
         app.add_handler(CallbackQueryHandler(self.on_callback))

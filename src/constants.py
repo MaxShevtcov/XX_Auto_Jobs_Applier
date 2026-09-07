@@ -53,6 +53,9 @@ BROWSER_STORAGE_STATE = "data_folder/browser_session/hh_state.json"
 SCHEDULE_FILE = "data_folder/schedule/schedule.yaml"
 DEFAULT_SCHEDULE_CRON = "0 9 * * *"
 DEFAULT_SCHEDULE_TZ = "Europe/Kaliningrad"
+TELEGRAM_SOURCES_FILE = "data_folder/sources.yaml"
+TELEGRAM_SOURCES_EXAMPLE_FILE = "data_folder_example/sources.yaml"
+TELEGRAM_SEARCH_STATE_FILE = "data_folder/output/telegram_search_state.yaml"
 
 # Словарь для подсчета стоимости запроса к модели
 PRICE_DICT = {

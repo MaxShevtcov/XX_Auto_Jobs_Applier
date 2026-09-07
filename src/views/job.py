@@ -47,3 +47,9 @@ class JobDescription(BaseModel):
     cover_letter: str = ""
     job_score: int = 0
     apply_status: str = ""
+    source: str = ""
+    published_at: str = ""
+    salary: str = ""
+    location: str = ""
+    contacts: List[str] = []
+    application_links: List[str] = []

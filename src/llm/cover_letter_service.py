@@ -117,3 +117,30 @@ class CoverLetterService:
         letter = scraper.deanonymize_personal_information(letter)
         logger.info("Сопроводительное письмо сгенерировано для /letter")
         return letter
+
+    async def score_job(self, job: dict, parameters: dict) -> tuple[dict, Any, str]:
+        """Вернуть оценку и контекст резюме для вакансии без генерации письма."""
+        scraper = await self._ensure_resume()
+        readable = getattr(scraper, "_readable", None) or transform_resume_data(scraper.resume_info)
+        gpt = self._build_gpt_answerer()
+        gpt.set_resume(scraper.resume_info, readable)
+        gpt.set_search_parameters(parameters)
+        gpt.set_job(job)
+        return await asyncio.to_thread(gpt.job_is_interesting), scraper, readable
+
+    async def score_and_generate_job(
+        self, job: dict, parameters: dict, threshold: int = 70
+    ) -> tuple[dict, Optional[str]]:
+        """Оценить уже извлечённую вакансию и подготовить письмо.
+
+        Используется Telegram-поиском: текст вакансии уже получен из публичного
+        поста, поэтому Playwright для самой вакансии не нужен.
+        """
+        score_data, scraper, readable = await self.score_job(job, parameters)
+        if int(score_data.get("score", 0) or 0) < threshold:
+            return score_data, None
+        gpt = self._build_gpt_answerer()
+        gpt.set_resume(scraper.resume_info, readable)
+        gpt.set_job(job)
+        letter = await asyncio.to_thread(gpt.write_cover_letter)
+        return score_data, scraper.deanonymize_personal_information(letter)

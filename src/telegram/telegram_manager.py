@@ -178,12 +178,28 @@ class TelegramReportSender:
         status_line = ""
         if job_description.apply_status:
             status_line = f"⚠️ Отклик не отправлен: {html.escape(job_description.apply_status)}\n"
+        details = ""
+        if job_description.source:
+            details += f"📣 Источник: {html.escape(job_description.source)}\n"
+        if job_description.published_at:
+            details += f"🕘 Опубликовано: {html.escape(job_description.published_at)}\n"
+        if job_description.salary:
+            details += f"💰 Зарплата: {html.escape(job_description.salary)}\n"
+        if job_description.location:
+            details += f"📍 Локация: {html.escape(job_description.location)}\n"
+        if job_description.contacts:
+            details += f"👤 Контакт: {html.escape(', '.join(job_description.contacts))}\n"
+        elif job_description.application_links:
+            details += "👤 Прямой контакт не найден\n"
+        if job_description.application_links:
+            details += f"📨 Отклик: {html.escape(', '.join(job_description.application_links))}\n"
         return (
             f"📋 <b>{html.escape(job_description.job_title or '')}</b>\n"
             f"🏢 {html.escape(job_description.company_name or '')}\n"
             f"⭐ Оценка: {job_description.job_score}\n"
             f"{status_line}"
             f"🛠 Навыки: {html.escape(skills_str)}\n"
+            f"{details}"
             f"🔗 {html.escape(job_description.link or '')}\n\n"
             f"<b>Сопроводительное письмо:</b>\n{cover_letter}"
         )

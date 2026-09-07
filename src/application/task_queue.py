@@ -8,6 +8,8 @@ from src.logger_config import logger
 SOURCE_SCHEDULED = "scheduled"
 SOURCE_MANUAL_SEARCH = "manual_search"
 SOURCE_LETTER = "letter"
+SOURCE_TELEGRAM_SEARCH = "telegram_search"
+SOURCE_MANUAL_TELEGRAM_SEARCH = "manual_telegram_search"
 
 
 @dataclass
@@ -18,6 +20,7 @@ class Task:
     coro_factory: Callable[[], Coroutine]
     progress_cb: Optional[Callable] = None
     on_done: Optional[Callable] = None  # async или sync: (result | Exception) -> None
+    dedupe_key: Optional[str] = None
     id: int = field(default_factory=itertools.count(1).__next__)
 
 
@@ -66,8 +69,8 @@ class TaskQueue:
         if self._worker is None or self._worker.done():
             logger.error("Постановка задачи в незапущенную очередь")
             return None
-        if self._is_scheduled_duplicate(task):
-            logger.warning("Scheduled-задача уже в очереди, дубликат отклонён")
+        if self._is_duplicate(task):
+            logger.warning("Задача уже в очереди, дубликат отклонён")
             return None
         if len(self._pending) >= self._maxsize:
             logger.warning(f"Очередь переполнена ({self._maxsize}), задача отклонена")
@@ -78,15 +81,18 @@ class TaskQueue:
         logger.info(f"Задача source={task.source} поставлена в очередь (позиция {position})")
         return position
 
-    def _is_scheduled_duplicate(self, task: Task) -> bool:
-        """True только для source="scheduled" при наличии такой же в очереди/на исполнении"""
-        if task.source != SOURCE_SCHEDULED:
+    def _is_duplicate(self, task: Task) -> bool:
+        """Дедупликация scheduled-задач и задач с явно заданным ключом."""
+        key = task.dedupe_key
+        if key is None and task.source == SOURCE_SCHEDULED:
+            key = SOURCE_SCHEDULED
+        if key is None:
             return False
-        in_pending = any(t.source == SOURCE_SCHEDULED for t in self._pending)
-        running_is_scheduled = (
-            self._current is not None and self._current.source == SOURCE_SCHEDULED
+        def task_key(item: Task) -> Optional[str]:
+            return item.dedupe_key or (SOURCE_SCHEDULED if item.source == SOURCE_SCHEDULED else None)
+        return any(task_key(item) == key for item in self._pending) or (
+            self._current is not None and task_key(self._current) == key
         )
-        return in_pending or running_is_scheduled
 
     async def _worker_loop(self) -> None:
         while True:

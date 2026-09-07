@@ -16,6 +16,7 @@ from src.constants import SEARCH_CONFIG_FILE, SECRETS_FILE
 from src.job_manager.playwright_manager import PlaywrightJobManager
 from src.logger_config import logger
 from src.telegram.ptb_request import load_raw_secrets
+from src.telegram.job_search import TelegramJobScheduler, TelegramJobSearchRunner
 from src.telegram.telegram_bot import HhApplierBot, TopicRouter
 
 
@@ -81,6 +82,12 @@ async def build_application():
         manager_factory=runner.get_manager,  # общий менеджер браузера на процесс
     )
 
+    telegram_search_runner = TelegramJobSearchRunner(
+        parameters=parameters,
+        cover_letter_service=cover_letter_service,
+    )
+    telegram_search_scheduler = TelegramJobScheduler(task_queue, telegram_search_runner)
+
     router = TopicRouter(raw_secrets)
     bot = HhApplierBot(
         secrets=raw_secrets,
@@ -91,6 +98,8 @@ async def build_application():
         store=store,
         allowed_user_ids=secrets_validated.get("tg_allowed_user_ids") or [],
         cover_letter_service=cover_letter_service,
+        telegram_search_runner=telegram_search_runner,
+        telegram_search_scheduler=telegram_search_scheduler,
     )
 
     return task_queue, runner, scheduler, bot
@@ -98,6 +107,7 @@ async def build_application():
 
 async def run_forever() -> None:
     task_queue, runner, scheduler, bot = await build_application()
+    telegram_search_scheduler = bot.telegram_search_scheduler
 
     stop_event = asyncio.Event()
     loop = asyncio.get_running_loop()
@@ -117,6 +127,7 @@ async def run_forever() -> None:
     try:
         await app.initialize()
         await app.start()
+        await telegram_search_scheduler.start()
         await app.updater.start_polling(drop_pending_updates=True)
         logger.info("Бот запущен (long-running режим)")
         await stop_event.wait()
@@ -133,6 +144,7 @@ async def run_forever() -> None:
             tb_str = traceback.format_exc()
             logger.error(f"Ошибка при остановке PTB-приложения:\n{tb_str}")
         await scheduler.shutdown()
+        await telegram_search_scheduler.shutdown()
         await task_queue.stop()
         if runner._manager is not None:
             try:
