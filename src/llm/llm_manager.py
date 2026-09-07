@@ -69,40 +69,53 @@ class OpenAIModel(AIModel):
         random.shuffle(llm_proxies)
 
         for proxy in llm_proxies:
-            try:
-                if proxy:
-                    http_client = httpx.Client(proxy=proxy)
-                else:
-                    http_client = None
-                model_kwargs = {
-                    "model_name": self.model_name,
-                    "openai_api_key": self.openai_api_key,
-                    "http_client": http_client,
-                    "temperature": 1
-                    if "o1" in self.model_name or "gpt-5" in self.model_name
-                    else TEMPERATURE,
-                    "presence_penalty": 0,
-                    "frequency_penalty": 0,
-                    "timeout": 300,
-                }
-                # сторонний OpenAI-совместимый провайдер (например, OpenCode Zen)
-                if self.llm_base_url:
-                    model_kwargs["base_url"] = self.llm_base_url
-                else:
-                    # Минимизируем рассуждения, если модель это поддерживает.
-                    model_kwargs["reasoning_effort"] = "low"
-                model = ChatOpenAI(**model_kwargs)
-                response = model.invoke(prompt_messages)
-                return response
-            except Exception:
-                tb_str = traceback.format_exc()
-                if proxy:
-                    logger.error(
-                        f"Ошибка доступа к LLM с использованием прокси {proxy.split('@')[-1]}: \n Traceback: {tb_str}"
+            for attempt in range(3):
+                try:
+                    if proxy:
+                        http_client = httpx.Client(proxy=proxy)
+                    else:
+                        http_client = None
+                    model_kwargs = {
+                        "model_name": self.model_name,
+                        "openai_api_key": self.openai_api_key,
+                        "http_client": http_client,
+                        "temperature": 1
+                        if "o1" in self.model_name or "gpt-5" in self.model_name
+                        else TEMPERATURE,
+                        "presence_penalty": 0,
+                        "frequency_penalty": 0,
+                        "timeout": 300,
+                    }
+                    # сторонний OpenAI-совместимый провайдер (например, OpenCode Zen)
+                    if self.llm_base_url:
+                        model_kwargs["base_url"] = self.llm_base_url
+                    else:
+                        # Минимизируем рассуждения, если модель это поддерживает.
+                        model_kwargs["reasoning_effort"] = "low"
+                    model = ChatOpenAI(**model_kwargs)
+                    response = model.invoke(prompt_messages)
+                    return response
+                except Exception as error:
+                    tb_str = traceback.format_exc()
+                    if proxy:
+                        logger.error(
+                            f"Ошибка доступа к LLM с использованием прокси {proxy.split('@')[-1]}: \n Traceback: {tb_str}"
+                        )
+                    else:
+                        logger.error(f"Ошибка доступа к LLM: \n Traceback: {tb_str}")
+                    error_text = str(error).lower()
+                    transient = any(
+                        marker in error_text
+                        for marker in ("502", "503", "504", "overloaded", "temporarily unavailable")
                     )
-                else:
-                    logger.error(f"Ошибка доступа к LLM: \n Traceback: {tb_str}")
-                time.sleep(3)
+                    if transient and attempt < 2:
+                        delay = (10 * 60, 30 * 60)[attempt]
+                        logger.warning(
+                            f"Провайдер LLM временно перегружен; повтор через {delay // 60} минут"
+                        )
+                        time.sleep(delay)
+                        continue
+                    break
         raise RuntimeError("Не удалось получить ответ от LLM: все прокси не работают")
 
 
