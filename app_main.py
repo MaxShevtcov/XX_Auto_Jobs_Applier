@@ -80,6 +80,7 @@ async def build_application():
         llm_api_key=secrets_validated["llm_api_key"],
         llm_proxy=secrets_validated["llm_proxy"],
         manager_factory=runner.get_manager,  # общий менеджер браузера на процесс
+        fallback_api_key=secrets_validated.get("llm_fallback_api_key"),
     )
 
     telegram_search_runner = TelegramJobSearchRunner(

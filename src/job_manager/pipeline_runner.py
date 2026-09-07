@@ -31,6 +31,7 @@ async def run_search_pipeline(
     progress_cb: Optional[ProgressCallback] = None,
     force: bool = False,
     manager: Optional[PlaywrightJobManager] = None,
+    fallback_api_key: Optional[str] = None,
 ) -> dict:
     """
     Оркестрация полного цикла поиска и отклика на вакансии.
@@ -54,7 +55,11 @@ async def run_search_pipeline(
         own_manager = True
 
     try:
-        gpt_answerer_component = GPTAnswerer(llm_api_key, llm_proxy)
+        gpt_answerer_component = GPTAnswerer(
+            llm_api_key,
+            llm_proxy,
+            fallback_api_key=fallback_api_key or secrets.get("llm_fallback_api_key"),
+        )
         resume_component = ResumeScraper(
             manager, job_title, parameters.get("resume_id"), gpt_answerer_component
         )

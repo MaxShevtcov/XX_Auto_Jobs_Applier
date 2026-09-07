@@ -34,6 +34,8 @@ config = load_app_config()
 LLM_MODEL = config.get("LLM_MODEL", "gpt-5-nano")
 LLM_MODEL_TYPE = config.get("LLM_MODEL_TYPE", "openai")
 LLM_BASE_URL = config.get("LLM_BASE_URL", None)
+LLM_FALLBACK_MODEL = config.get("LLM_FALLBACK_MODEL", "deepseek-v4-flash")
+LLM_FALLBACK_BASE_URL = config.get("LLM_FALLBACK_BASE_URL", "https://opencode.ai/zen/v1")
 TEMPERATURE = config.get("TEMPERATURE", 0.4)
 _LLM_DAILY_LIMIT_BLOCKED = False
 
@@ -57,15 +59,17 @@ class OpenAIModel(AIModel):
         llm_model: str,
         llm_proxy: Union[str, None] = None,
         llm_base_url: Union[str, None] = None,
+        daily_limit_guard: bool = True,
     ) -> None:
         self.llm_proxy = llm_proxy
         self.model_name = llm_model
         self.llm_base_url = llm_base_url
         self.openai_api_key = api_key
+        self.daily_limit_guard = daily_limit_guard
 
     def invoke(self, prompt: ChatPromptTemplate) -> BaseMessage:
         global _LLM_DAILY_LIMIT_BLOCKED
-        if _LLM_DAILY_LIMIT_BLOCKED:
+        if self.daily_limit_guard and _LLM_DAILY_LIMIT_BLOCKED:
             raise LLMDailyRateLimitError(
                 "Дневной лимит бесплатных моделей LLM исчерпан; запросы приостановлены"
             )
@@ -118,7 +122,7 @@ class OpenAIModel(AIModel):
                         marker in error_text
                         for marker in ("free-models-per-day", "openrouter_free_tier_daily")
                     )
-                    if daily_limit:
+                    if daily_limit and self.daily_limit_guard:
                         _LLM_DAILY_LIMIT_BLOCKED = True
                         logger.warning(
                             "Дневной лимит бесплатных моделей LLM исчерпан; "
@@ -277,8 +281,17 @@ class GeminiModel(AIModel):
 class AIAdapter:
     """Класс для получения доступа к LLM моделям разных фирм через API"""
 
-    def __init__(self, api_key: str, llm_proxy: str):
+    def __init__(self, api_key: str, llm_proxy: str, fallback_api_key: str = None):
         self.model = self._create_model(api_key, llm_proxy)
+        self.fallback_model = None
+        if fallback_api_key and LLM_MODEL_TYPE == "openai":
+            self.fallback_model = OpenAIModel(
+                fallback_api_key,
+                LLM_FALLBACK_MODEL,
+                llm_proxy,
+                llm_base_url=LLM_FALLBACK_BASE_URL,
+                daily_limit_guard=False,
+            )
 
     def _create_model(self, api_key: str, llm_proxy: str) -> AIModel:
         logger.info(f"Используем {LLM_MODEL_TYPE} от {LLM_MODEL}")
@@ -299,7 +312,17 @@ class AIAdapter:
             raise ValueError(f"Неподдерживаемый тип модели: {LLM_MODEL_TYPE}")
 
     def invoke(self, prompt: str) -> str:
-        return self.model.invoke(prompt)
+        try:
+            return self.model.invoke(prompt)
+        except LLMDailyRateLimitError:
+            if self.fallback_model is None:
+                raise
+            logger.warning(
+                f"Переключаемся на fallback LLM: {LLM_FALLBACK_MODEL} через {LLM_FALLBACK_BASE_URL}"
+            )
+            self.model = self.fallback_model
+            self.fallback_model = None
+            return self.model.invoke(prompt)
 
 
 class LLMLogger:
@@ -559,9 +582,20 @@ class GPTAnswerer:
     а также написания сопроводительных писем.
     """
 
-    def __init__(self, llm_api_key: str, llm_proxy: str, test_mode: bool = False):
+    def __init__(
+        self,
+        llm_api_key: str,
+        llm_proxy: str,
+        test_mode: bool = False,
+        fallback_api_key: str = None,
+    ):
         self.job = None
-        self.ai_adapter = AIAdapter(llm_api_key, llm_proxy)
+        if fallback_api_key:
+            self.ai_adapter = AIAdapter(
+                llm_api_key, llm_proxy, fallback_api_key=fallback_api_key
+            )
+        else:
+            self.ai_adapter = AIAdapter(llm_api_key, llm_proxy)
         self.llm_cheap = LoggerChatModel(self.ai_adapter)
         self.chains = {
             "job_is_interesting": self._create_pydantic_chain(

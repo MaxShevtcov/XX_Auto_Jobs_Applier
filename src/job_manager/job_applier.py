@@ -884,7 +884,12 @@ if __name__ == "__main__":
         await manager.initialize()
 
         try:
-            gpt_answerer = GPTAnswerer(secrets["llm_api_key"], secrets["llm_proxy"], test_mode=True)
+            gpt_answerer = GPTAnswerer(
+                secrets["llm_api_key"],
+                secrets["llm_proxy"],
+                test_mode=True,
+                fallback_api_key=secrets.get("llm_fallback_api_key"),
+            )
             resume_component = ResumeScraper(
                 manager, parameters.get("job_title"), parameters.get("resume_id"), gpt_answerer
             )

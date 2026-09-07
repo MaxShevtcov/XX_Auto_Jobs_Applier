@@ -28,12 +28,14 @@ class CoverLetterService:
         llm_api_key: str,
         llm_proxy: List[str],
         manager_factory: Callable[[], Coroutine[Any, Any, Any]],
+        fallback_api_key: Optional[str] = None,
         ttl_sec: float = DEFAULT_RESUME_TTL_SEC,
         resume_cache_path: str = DEFAULT_RESUME_CACHE_PATH,
     ):
         self.llm_api_key = llm_api_key
         self.llm_proxy = llm_proxy
         self.manager_factory = manager_factory
+        self.fallback_api_key = fallback_api_key
         self.ttl_sec = ttl_sec
         self.resume_cache_path = resume_cache_path
         self._resume_scraper: Optional[ResumeScraper] = None
@@ -43,7 +45,11 @@ class CoverLetterService:
         return await self.manager_factory()
 
     def _build_gpt_answerer(self) -> GPTAnswerer:
-        return GPTAnswerer(self.llm_api_key, self.llm_proxy)
+        return GPTAnswerer(
+            self.llm_api_key,
+            self.llm_proxy,
+            fallback_api_key=self.fallback_api_key,
+        )
 
     async def _ensure_resume(self) -> ResumeScraper:
         """Резюме с TTL-кэшем; fallback на yaml-файл при недоступном браузере"""

@@ -47,6 +47,14 @@ LLM_MODEL: deepseek-v4-flash
 # Если не задан - используется официальный API OpenAI
 LLM_BASE_URL: "https://opencode.ai/zen/v1"
 
+# Fallback после исчерпания дневного лимита бесплатных моделей OpenRouter
+LLM_FALLBACK_MODEL: deepseek-v4-flash
+LLM_FALLBACK_BASE_URL: "https://opencode.ai/zen/v1"
+
+# Fallback после исчерпания дневного лимита бесплатных моделей OpenRouter
+LLM_FALLBACK_MODEL: deepseek-v4-flash
+LLM_FALLBACK_BASE_URL: "https://opencode.ai/zen/v1"
+
 # Температура модели
 # чем она выше, тем креативнее модель, но могут случаться галлюцинации
 # чем она ниже, тем строже модель следует промпту и меньше выдумывает
