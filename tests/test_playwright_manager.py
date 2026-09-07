@@ -876,3 +876,164 @@ async def test_set_search_field_selects_short_description_radio(manager_with_pag
 
     assert any("short_description" in s for s in clicks)
     assert not any("full_description" in s for s in clicks)
+
+
+# ---------------------------------------------------------------------------
+# _build_search_url
+# ---------------------------------------------------------------------------
+
+
+def test_build_search_url_empty_params(manager):
+    url = manager._build_search_url({})
+    assert url == "https://hh.ru/search/vacancy?"
+
+
+def test_build_search_url_keywords(manager):
+    url = manager._build_search_url({"keywords": "android"})
+    assert "text=android" in url
+
+
+def test_build_search_url_excluded_words(manager):
+    url = manager._build_search_url({"keywords": "dev", "words_to_exclude": "intern,junior"})
+    assert "text=dev+-intern+-junior" in url
+
+
+def test_build_search_url_remote(manager):
+    url = manager._build_search_url({"job_format": {"REMOTE": True, "ON_SITE": False, "HYBRID": False, "FIELD_WORK": False}})
+    assert "work_format=REMOTE" in url
+
+
+def test_build_search_url_hybrid_and_remote(manager):
+    url = manager._build_search_url({"job_format": {"REMOTE": True, "HYBRID": True, "ON_SITE": False, "FIELD_WORK": False}})
+    assert "work_format=REMOTE" in url
+    assert "work_format=HYBRID" in url
+
+
+def test_build_search_url_experience(manager):
+    url = manager._build_search_url({"experience": {"doesntMatter": True}})
+    assert "experience=doesNotMatter" in url
+
+
+def test_build_search_url_experience_between(manager):
+    url = manager._build_search_url({"experience": {"between1And3": True}})
+    assert "experience=between1And3" in url
+
+
+def test_build_search_url_employment_full(manager):
+    url = manager._build_search_url({"employment": {"FULL": True}})
+    assert "employment_form=FULL" in url
+
+
+def test_build_search_url_employment_internship(manager):
+    url = manager._build_search_url({"employment": {"INTERNSHIP": True}})
+    assert "label=internship" in url
+
+
+def test_build_search_url_salary_and_currency(manager):
+    url = manager._build_search_url({"salary": 150000, "currency": {"RUR": True}})
+    assert "salary=150000" in url
+    assert "currency_code=RUR" in url
+
+
+def test_build_search_url_only_with_salary(manager):
+    url = manager._build_search_url({"only_with_salary": True})
+    assert "label=with_salary" in url
+
+
+def test_build_search_url_education_higher(manager):
+    url = manager._build_search_url({"education": {"higher": True}})
+    assert "education=higher" in url
+
+
+def test_build_search_url_order_by_salary(manager):
+    url = manager._build_search_url({"order_by": {"salary_desc": True}})
+    assert "order_by=salary_desc" in url
+
+
+def test_build_search_url_order_by_relevance_omitted(manager):
+    url = manager._build_search_url({"order_by": {"relevance": True}})
+    assert "order_by" not in url
+
+
+def test_build_search_url_period_month(manager):
+    url = manager._build_search_url({"period": {"month": True}})
+    assert "search_period=30" in url
+
+
+def test_build_search_url_period_all_time_omitted(manager):
+    url = manager._build_search_url({"period": {"all_time": True}})
+    assert "search_period" not in url
+
+
+def test_build_search_url_show_50(manager):
+    url = manager._build_search_url({"show": {"show_50": True}})
+    assert "items_on_page=50" in url
+
+
+def test_build_search_url_show_20_omitted(manager):
+    url = manager._build_search_url({"show": {"show_20": True}})
+    assert "items_on_page" not in url
+
+
+def test_build_search_url_area_numeric(manager):
+    url = manager._build_search_url({"area": "113"})
+    assert "area=113" in url
+
+
+def test_build_search_url_area_text_ignored(manager):
+    url = manager._build_search_url({"area": "Россия"})
+    assert "area" not in url
+
+
+def test_build_search_url_vacancy_labels(manager):
+    url = manager._build_search_url({
+        "vacancy_label": {
+            "not_from_agency": True,
+            "accredited_it": True,
+            "with_address": False,
+            "accept_handicapped": False,
+            "accept_kids": False,
+            "accept_teens": False,
+            "low_performance": False,
+        }
+    })
+    assert "label=not_from_agency" in url
+    assert "label=accredited_it" in url
+
+
+def test_build_search_url_search_field_description(manager):
+    url = manager._build_search_url({"search_field": {"description": True}})
+    assert "search_field=description" in url
+
+
+def test_build_search_url_search_field_name(manager):
+    url = manager._build_search_url({"search_field": {"name": True}})
+    assert "search_field=name" in url
+
+
+def test_build_search_url_full_config(manager):
+    """Полный набор параметров как в реальном search_config.yaml."""
+    url = manager._build_search_url({
+        "keywords": "android",
+        "experience": {"doesntMatter": True},
+        "employment": {"FULL": True},
+        "job_format": {"REMOTE": True, "ON_SITE": False, "HYBRID": False, "FIELD_WORK": False},
+        "salary": 150000,
+        "currency": {"RUR": True},
+        "only_with_salary": False,
+        "education": {"higher": False, "not_needed": True},
+        "order_by": {"relevance": True},
+        "period": {"month": True},
+        "show": {"show_20": True},
+        "vacancy_label": {"not_from_agency": True, "with_address": False, "accept_handicapped": False, "accept_kids": False, "accept_teens": False, "accredited_it": False, "low_performance": False},
+    })
+    assert "text=android" in url
+    assert "experience=doesNotMatter" in url
+    assert "employment_form=FULL" in url
+    assert "work_format=REMOTE" in url
+    assert "salary=150000" in url
+    assert "currency_code=RUR" in url
+    assert "education=not_required_or_not_specified" in url
+    assert "search_period=30" in url
+    assert "label=not_from_agency" in url
+    assert url.startswith("https://hh.ru/search/vacancy?")

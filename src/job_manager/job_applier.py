@@ -254,6 +254,26 @@ class JobApplier:
         """Уникальный ключ вакансии для дедупликации внутри запуска"""
         return str(vacancy.get("id") or vacancy.get("alternate_url") or "")
 
+    @staticmethod
+    def _is_remote_only_job(job: Dict[str, Any]) -> bool:
+        """Разрешает только явно удалённый формат без смешанных вариантов."""
+        raw = str(job.get("work_formats") or "").strip().lower().replace("ё", "е")
+        if not raw:
+            return False
+        forbidden = (
+            "гибрид",
+            "hybrid",
+            "офис",
+            "на месте",
+            "on-site",
+            "onsite",
+            "разъезд",
+            "field work",
+        )
+        if any(marker in raw for marker in forbidden):
+            return False
+        return "удален" in raw or "remote" in raw
+
     async def send_repsonse(self, vacancy: Dict[str, Any]) -> str:
         """Разослать отклики всем работодателям на странице"""
         # собрать описание вакансии
@@ -263,6 +283,20 @@ class JobApplier:
         company_name = job["company_name"]
         company_job_title = job["job_title"]
         logger.info(f"Найдена вакансия {company_job_title}")
+        # Фильтр HH с work_format=REMOTE допускает вакансии со смешанным
+        # форматом (например, «удалённо или гибрид»). Для режима «только
+        # удалёнка» проверяем фактическое поле карточки и не отправляем
+        # отклик, если формат не указан однозначно как удалённый.
+        if not self._is_remote_only_job(job):
+            apply_result = "Skip", "Формат работы не является только удалённым"
+            logger.warning(
+                f"Пропускаем вакансию: формат работы не только удалённый: "
+                f"{job.get('work_formats') or 'не указан'}"
+            )
+            result, reason = apply_result
+            self.applies_num += 1
+            self._save_company(job, apply_result, vacancy)
+            return "OK"
         # если вакансия еще не встречалась и компания не в черном списке
         # - начать процесс отклика на вакансию
         if self._is_blacklisted(self._sanitize_text(company_name)):

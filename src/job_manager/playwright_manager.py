@@ -335,80 +335,172 @@ class PlaywrightJobManager:
         logger.info(f"Переход на страницу: {url}")
         await safe_click(self.page, "xpath=//*[contains(text(), 'Подобрали для вас')]")
 
+    def _build_search_url(self, search_params: Dict[str, Any]) -> str:
+        """Строит URL поиска hh.ru с query-параметрами из search_config."""
+        params: Dict[str, Any] = {}
+
+        # --- Ключевые слова ---
+        keywords = str(search_params.get("keywords") or "").strip()
+        words_to_exclude = str(search_params.get("words_to_exclude") or "").strip()
+        if keywords or words_to_exclude:
+            parts = []
+            if keywords:
+                parts.append(keywords)
+            if words_to_exclude:
+                parts.extend(f"-{w.strip()}" for w in words_to_exclude.split(",") if w.strip())
+            params["text"] = " ".join(parts)
+
+        # --- Где искать ---
+        sf = search_params.get("search_field") or {}
+        sf_keys = self._true_keys(sf)
+        if sf_keys:
+            if "description" in sf_keys:
+                params["search_field"] = "description"
+            elif "name" in sf_keys or "company_name" in sf_keys:
+                params["search_field"] = "name"
+
+        # --- Опыт ---
+        exp = search_params.get("experience") or {}
+        exp_key = self._first_true_key(exp)
+        if exp_key:
+            hh_value = "doesNotMatter" if exp_key == "doesntMatter" else exp_key
+            params["experience"] = hh_value
+
+        # --- Тип занятости ---
+        emp = search_params.get("employment") or {}
+        emp_keys = self._true_keys(emp)
+        for k in emp_keys:
+            if k == "INTERNSHIP":
+                params.setdefault("label", [])
+                if isinstance(params["label"], str):
+                    params["label"] = [params["label"]]
+                params["label"].append("internship")
+            elif k == "ACCEPT_TEMPORARY":
+                params.setdefault("label", [])
+                if isinstance(params["label"], str):
+                    params["label"] = [params["label"]]
+                params["label"].append("accept_handicapped")
+            else:
+                params.setdefault("employment_form", [])
+                if isinstance(params["employment_form"], str):
+                    params["employment_form"] = [params["employment_form"]]
+                params["employment_form"].append(k)
+
+        # --- Формат работы ---
+        jf = search_params.get("job_format") or {}
+        jf_keys = self._true_keys(jf)
+        for k in jf_keys:
+            params.setdefault("work_format", [])
+            if isinstance(params["work_format"], str):
+                params["work_format"] = [params["work_format"]]
+            params["work_format"].append(k)
+
+        # --- Образование ---
+        edu = search_params.get("education") or {}
+        edu_map = {
+            "not_needed": "not_required_or_not_specified",
+            "middle": "special_secondary",
+            "higher": "higher",
+        }
+        for k in self._true_keys(edu):
+            suffix = edu_map.get(k)
+            if suffix:
+                params.setdefault("education", [])
+                if isinstance(params["education"], str):
+                    params["education"] = [params["education"]]
+                params["education"].append(suffix)
+
+        # --- Зарплата ---
+        salary = search_params.get("salary")
+        if salary is not None and salary != "":
+            try:
+                params["salary"] = str(int(salary))
+            except (ValueError, TypeError):
+                pass
+
+        cur = search_params.get("currency") or {}
+        cur_key = self._first_true_key(cur)
+        if cur_key:
+            params["currency_code"] = cur_key
+
+        if search_params.get("only_with_salary") is True:
+            params.setdefault("label", [])
+            if isinstance(params["label"], str):
+                params["label"] = [params["label"]]
+            params["label"].append("with_salary")
+
+        # --- Метки вакансий ---
+        vl = search_params.get("vacancy_label") or {}
+        for k in self._true_keys(vl):
+            params.setdefault("label", [])
+            if isinstance(params["label"], str):
+                params["label"] = [params["label"]]
+            params["label"].append(k)
+
+        # --- Сортировка ---
+        ob = search_params.get("order_by") or {}
+        ob_key = self._first_true_key(ob)
+        if ob_key and ob_key != "relevance":
+            params["order_by"] = ob_key
+
+        # --- Период ---
+        period_map = {
+            "all_time": "0",
+            "month": "30",
+            "week": "7",
+            "three_days": "3",
+            "one_day": "1",
+        }
+        per = search_params.get("period") or {}
+        per_key = self._first_true_key(per)
+        if per_key:
+            days = period_map.get(per_key)
+            if days and days != "0":
+                params["search_period"] = days
+
+        # --- Количество на странице ---
+        show = search_params.get("show") or {}
+        show_map = {"show_20": "20", "show_50": "50", "show_100": "100"}
+        show_key = self._first_true_key(show)
+        if show_key:
+            count = show_map.get(show_key, "20")
+            if count != "20":
+                params["items_on_page"] = count
+
+        # --- Регион (если передан числовой ID) ---
+        area_raw = search_params.get("area") or ""
+        area_str = str(area_raw).strip()
+        if area_str:
+            for a in self._split_multi(area_str):
+                a = a.strip()
+                if a.isdigit():
+                    params.setdefault("area", [])
+                    if isinstance(params["area"], str):
+                        params["area"] = [params["area"]]
+                    params["area"].append(a)
+
+        query = urllib.parse.urlencode(params, doseq=True)
+        return f"https://hh.ru/search/vacancy?{query}"
+
     async def set_advanced_search_params(
         self, search_params: Dict[str, Any], resume_id: str
     ) -> None:
         """
-        Заходит на страницу расширенного поиска hh.ru и выставляет настройки из `search_config.yaml`.
+        Выполняет поиск вакансий на hh.ru с настройками из `search_config.yaml`.
 
-        `search_params` ожидается в "сыром" виде (как в YAML / `SearchConfig.model_dump()`).
+        Основные фильтры применяются через URL query-параметры (надёжнее UI-кликов).
+        Сложные фильтры (professional_role, industry, districts) требуют
+        резолва имени → ID через UI-модалки и пока не поддерживаются через URL.
         """
         self.search_params = search_params or {}
         await self.start_search(resume_id)
-        opened = False
-        await self.pause_async(3, 4)
-        for selector in (
-            "[data-qa='advanced-search']",
-            "[aria-label='Расширенный поиск']",
-            "xpath=//*[contains(., 'Расширенный поиск')]",
-        ):
-            if await safe_click(self.page, selector, timeout=10000):
-                opened = True
-                break
-
-        if not opened:
-            logger.warning(
-                "Кнопка расширенного поиска не найдена; пробуем открыть URL расширенного поиска"
-            )
-            try:
-                await safe_goto(self.page, "https://hh.ru/search/vacancy/advanced")
-                logger.info("Переход на страницу: https://hh.ru/search/vacancy/advanced")
-            except Exception as e:
-                logger.error(f"Не удалось перейти на страницу расширенного поиска: {e}")
-                return
-
-        # Ждём появления интерфейса расширенного поиска
-        try:
-            await self.page.wait_for_selector(
-                "[data-qa='vacancysearch__keywords-input']", timeout=15000
-            )
-        except Exception:
-            # Иногда UI загружается с другим data-qa; продолжаем на лучших усилиях
-            pass
-
-        await self._handle_interfering_messages()
-
-        # 2) Применяем настройки (по возможности для каждого блока)
-        # TODO: добавить частоту выплат, график работы, рабочие часы, категорию прав
-        await self._set_keywords()
-        await self._set_search_field()
-        await self._set_words_to_exclude()
-        await self._set_professional_role()
-        await self._set_industry()
-        await self._set_area()
-        await self._set_districts()
-        await self._set_salary_and_currency()
-        await self._set_only_with_salary()
-        await self._set_education()
-        await self._set_experience()
-        await self._set_employment()
-        await self._set_job_format()
-        await self._set_vacancy_label()
-        await self._set_order_by()
-        await self._set_period()
-        await self._set_show()
-        # 3) Обрабатываем мешающие сообщения
-        await self._handle_interfering_messages()
-        # 4) Запускаем поиск
-        if not await safe_click(
-            self.page, "[data-qa='search-button']", timeout=10000
-        ) and not await safe_click(
-            self.page, "[data-qa='advanced-search-submit-button']", timeout=5000
-        ):
-            await safe_click(
-                self.page, "xpath=//*[text()='Найти' or text()='Найти вакансии']", timeout=10000
-            )
         await self.pause_async(2, 3)
+
+        search_url = self._build_search_url(self.search_params)
+        logger.info(f"Переход на страницу поиска: {search_url}")
+        await safe_goto(self.page, search_url)
+        await self.pause_async(2, 3)
+        await self._handle_interfering_messages()
 
     # -----------------------------
     # Вспомогательные методы расширенного поиска (UI)

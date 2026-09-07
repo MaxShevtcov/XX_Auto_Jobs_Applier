@@ -35,6 +35,10 @@ class ResumeScraper:
         secrets = load_yaml_file(SECRETS_FILE)
         self.configured_first_name = (secrets.get("first_name") or "").strip()
         self.configured_last_name = (secrets.get("last_name") or "").strip()
+        # Контакты из secrets.yaml надёжнее скрейпинга HH и не должны
+        # оставляться на усмотрение LLM. В частности, Telegram часто
+        # отсутствует в публичной разметке профиля.
+        self.configured_telegram = (secrets.get("telegram") or "").strip()
 
     async def get_resume_parameters(self) -> Tuple[str, List[str]]:
         """Получить ID нужного резюме"""
@@ -84,6 +88,9 @@ class ResumeScraper:
             if not personal_information.get(key):
                 self.parse_contacts(self.resume_info.get("about_me"))
                 break
+        if self.configured_telegram:
+            personal_information["telegram"] = self.configured_telegram
+            self.resume_info["personal_information"]["telegram"] = self.configured_telegram
         # Имена из конфига приоритетны: скрейпинг имени на hh.ru ненадёжен,
         # а без реального имени деканонизация dummy-имени "Аристаний" не сработает
         if self.configured_first_name:
@@ -231,6 +238,11 @@ class ResumeScraper:
                 value = self.personal_information[key_]
                 value_to_replace_escaped = re.escape(value_to_replace)
                 if key_ in ["phone"]:
+                    output = re.sub(rf"{value_to_replace_escaped}", value, output)
+                elif key_ == "telegram":
+                    # Варианты dummy Telegram включают формы с ведущим @.
+                    # Для них нельзя использовать \b: перед @ нет word-boundary,
+                    # из-за чего иначе заменяется только имя и теряется символ @.
                     output = re.sub(rf"{value_to_replace_escaped}", value, output)
                 else:
                     output = re.sub(rf"\b{value_to_replace_escaped}\b", value, output)
