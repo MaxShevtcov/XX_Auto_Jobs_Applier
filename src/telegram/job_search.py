@@ -27,6 +27,7 @@ from src.constants import (
     TELEGRAM_SOURCES_EXAMPLE_FILE,
     TELEGRAM_SOURCES_FILE,
 )
+from src.llm.llm_manager import LLMDailyRateLimitError
 from src.logger_config import logger
 from src.telegram.telegram_manager import TelegramReportSender
 from src.utils.utils import load_app_config
@@ -292,6 +293,7 @@ class TelegramJobSearchRunner:
         state.setdefault("sources", {})
         state.setdefault("sent", {})
         checked = sent = 0
+        daily_limit_reached = False
         sender = TelegramReportSender()
         async with httpx.AsyncClient(
             timeout=httpx.Timeout(20.0),
@@ -336,6 +338,10 @@ class TelegramJobSearchRunner:
                             f"{cfg['llm_timeout_seconds']} с"
                         )
                         continue
+                    except LLMDailyRateLimitError as error:
+                        logger.warning(f"Останавливаем Telegram-поиск: {error}")
+                        daily_limit_reached = True
+                        break
                     except Exception as error:
                         logger.warning(f"Пропускаем {post.permalink}: ошибка ИИ: {error}")
                         continue
@@ -362,6 +368,8 @@ class TelegramJobSearchRunner:
                     sent += 1
                     if sent >= cfg["max_results_per_run"]:
                         break
+                if daily_limit_reached:
+                    break
                 if processed_last_id:
                     state["sources"].setdefault(username, {})["last_message_id"] = processed_last_id
                 if source_index + 1 < len(cfg["sources"]):
@@ -371,7 +379,11 @@ class TelegramJobSearchRunner:
             state["sent"] = dict(list(state["sent"].items())[-1000:])
         state["last_run"] = datetime.now(timezone.utc).isoformat()
         self._save_state(state)
-        return {"sent": sent, "checked": checked, "reason": "готово"}
+        return {
+            "sent": sent,
+            "checked": checked,
+            "reason": "дневной лимит LLM исчерпан" if daily_limit_reached else "готово",
+        }
 
 
 class TelegramJobScheduler:

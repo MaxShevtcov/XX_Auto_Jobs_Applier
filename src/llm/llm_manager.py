@@ -35,6 +35,11 @@ LLM_MODEL = config.get("LLM_MODEL", "gpt-5-nano")
 LLM_MODEL_TYPE = config.get("LLM_MODEL_TYPE", "openai")
 LLM_BASE_URL = config.get("LLM_BASE_URL", None)
 TEMPERATURE = config.get("TEMPERATURE", 0.4)
+_LLM_DAILY_LIMIT_BLOCKED = False
+
+
+class LLMDailyRateLimitError(RuntimeError):
+    """Дневной лимит провайдера исчерпан; новые запросы отправлять нельзя."""
 
 
 class AIModel(ABC):
@@ -59,6 +64,11 @@ class OpenAIModel(AIModel):
         self.openai_api_key = api_key
 
     def invoke(self, prompt: ChatPromptTemplate) -> BaseMessage:
+        global _LLM_DAILY_LIMIT_BLOCKED
+        if _LLM_DAILY_LIMIT_BLOCKED:
+            raise LLMDailyRateLimitError(
+                "Дневной лимит бесплатных моделей LLM исчерпан; запросы приостановлены"
+            )
         logger.info("Получен доступ к модели через OpenAI API")
         prompt_messages = [SystemMessage(content=prompts.custom_instructions)] + prompt.messages
         # случайно выбираем одну прокси за другой, пока запрос к LLM не пройдет
@@ -104,6 +114,19 @@ class OpenAIModel(AIModel):
                     else:
                         logger.error(f"Ошибка доступа к LLM: \n Traceback: {tb_str}")
                     error_text = str(error).lower()
+                    daily_limit = any(
+                        marker in error_text
+                        for marker in ("free-models-per-day", "openrouter_free_tier_daily")
+                    )
+                    if daily_limit:
+                        _LLM_DAILY_LIMIT_BLOCKED = True
+                        logger.warning(
+                            "Дневной лимит бесплатных моделей LLM исчерпан; "
+                            "дальнейшие запросы приостановлены до сброса лимита"
+                        )
+                        raise LLMDailyRateLimitError(
+                            "Дневной лимит бесплатных моделей LLM исчерпан"
+                        ) from error
                     transient = any(
                         marker in error_text
                         for marker in ("502", "503", "504", "overloaded", "temporarily unavailable")
