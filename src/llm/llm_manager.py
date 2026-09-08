@@ -3,6 +3,7 @@ import random
 import textwrap
 import time
 import traceback
+from urllib.parse import urlparse
 from abc import ABC, abstractmethod
 from datetime import datetime
 from pathlib import Path
@@ -846,8 +847,11 @@ class GPTAnswerer:
             "first_name": first_name,
         }
         if telegram:
-            additional_prompt += f"Telegram: {telegram}"
-            invoke_dict["telegram"] = telegram
+            # URL вида t.me/<URL> модель иногда воспроизводит с лишним
+            # префиксом. В письме @username и читаемее, и устойчивее.
+            telegram_for_letter = self._telegram_handle(telegram)
+            additional_prompt += f"Telegram: {telegram_for_letter}"
+            invoke_dict["telegram"] = telegram_for_letter
         elif whatsapp:
             additional_prompt += f"Whatsapp: {whatsapp}"
             invoke_dict["whatsapp"] = whatsapp
@@ -868,6 +872,17 @@ class GPTAnswerer:
         output = chain.invoke(invoke_dict)
         logger.info(f"Сопроводительное письмо сгенерировано: '{output}'")
         return output
+
+    @staticmethod
+    def _telegram_handle(contact: str) -> str:
+        """Вернуть @username для Telegram URL, не меняя иной вид контакта."""
+        value = (contact or "").strip()
+        parsed = urlparse(value)
+        if parsed.netloc.lower() in {"t.me", "www.t.me", "telegram.me", "www.telegram.me"}:
+            username = parsed.path.strip("/").split("/", 1)[0]
+            if username:
+                return f"@{username.lstrip('@')}"
+        return value
 
     def resume_improvement_recommendations(self) -> str:
         """

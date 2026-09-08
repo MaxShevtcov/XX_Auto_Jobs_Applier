@@ -33,12 +33,13 @@ class ResumeScraper:
         # Имена из secrets.yaml имеют приоритет над скрейпингом профиля:
         # разметка hh.ru меняется, и без них деканонизация подписи писем ломается
         secrets = load_yaml_file(SECRETS_FILE)
-        self.configured_first_name = (secrets.get("first_name") or "").strip()
-        self.configured_last_name = (secrets.get("last_name") or "").strip()
-        # Контакты из secrets.yaml надёжнее скрейпинга HH и не должны
-        # оставляться на усмотрение LLM. В частности, Telegram часто
-        # отсутствует в публичной разметке профиля.
-        self.configured_telegram = (secrets.get("telegram") or "").strip()
+        # Эти данные нужны для обратной подстановки после анонимизации. Они
+        # особенно важны при работе из кэша: resume.yaml уже содержит только
+        # заглушки и не позволяет восстановить исходные контакты сам по себе.
+        self.configured_personal_information = {
+            key: str(secrets.get(key) or "").strip()
+            for key in ("first_name", "last_name", "telegram", "whatsapp", "phone", "email")
+        }
 
     async def get_resume_parameters(self) -> Tuple[str, List[str]]:
         """Получить ID нужного резюме"""
@@ -88,28 +89,40 @@ class ResumeScraper:
             if not personal_information.get(key):
                 self.parse_contacts(self.resume_info.get("about_me"))
                 break
-        if self.configured_telegram:
-            personal_information["telegram"] = self.configured_telegram
-            self.resume_info["personal_information"]["telegram"] = self.configured_telegram
+        self._apply_configured_personal_information(personal_information)
         # Имена из конфига приоритетны: скрейпинг имени на hh.ru ненадёжен,
         # а без реального имени деканонизация dummy-имени "Аристаний" не сработает
-        if self.configured_first_name:
-            personal_information["first_name"] = self.configured_first_name
-            self.resume_info["personal_information"]["first_name"] = self.configured_first_name
-        elif not personal_information.get("first_name"):
+        if not personal_information.get("first_name"):
             logger.warning(
                 "Имя не получено ни из конфига (first_name в secrets.yaml), ни из профиля hh.ru — "
                 "в подписи сопроводительных писем может остаться dummy-имя"
             )
-        if self.configured_last_name:
-            personal_information["last_name"] = self.configured_last_name
-            self.resume_info["personal_information"]["last_name"] = self.configured_last_name
         self.personal_information = self.resume_info["personal_information"].copy()
         self.anonymize_personal_information()
         self.save_resume_info()
         resume_readable = transform_resume_data(self.resume_info)
         resume_readable = self.anonymize_text(resume_readable)
         return self.resume_info, resume_readable
+
+    def _apply_configured_personal_information(self, personal_information: Dict[str, Any]) -> None:
+        """Подставить реальные контакты из secrets.yaml поверх данных HH."""
+        for key, value in self.configured_personal_information.items():
+            if value:
+                personal_information[key] = value
+
+    def restore_personal_information_from_cache(self) -> None:
+        """Подготовить анонимизированный кэш к безопасной генерации письма."""
+        personal_information = self.resume_info.setdefault("personal_information", {})
+        dummy_values = set(DUMMY_PERSONAL_INFO_MALE.values()) | set(DUMMY_PERSONAL_INFO_FEMALE.values())
+        # Заглушка в кэше не является реальными данными кандидата. Без этого
+        # шага деанонимизация заменяет «Аристаний» и тестовые контакты на них же.
+        for key, value in list(personal_information.items()):
+            if value in dummy_values:
+                personal_information.pop(key)
+        self._apply_configured_personal_information(personal_information)
+        self.personal_information = personal_information.copy()
+        # Если кэш создали без анонимизации, не отправляем личные данные в LLM.
+        self.anonymize_personal_information()
 
     async def get_selected_resume_info(self, resume_id: str) -> Dict[str, Any]:
         """Получить информацию о нужном резюме"""
@@ -246,4 +259,12 @@ class ResumeScraper:
                     output = re.sub(rf"{value_to_replace_escaped}", value, output)
                 else:
                     output = re.sub(rf"\b{value_to_replace_escaped}\b", value, output)
+        # Некоторые модели добавляют https://t.me/ перед уже полным URL.
+        # Исправляем только повторный Telegram-префикс после подстановки.
+        output = re.sub(
+            r"https?://(?:www\.)?(?:t\.me|telegram\.me)/(https?://(?:www\.)?(?:t\.me|telegram\.me)/)",
+            r"\1",
+            output,
+            flags=re.IGNORECASE,
+        )
         return output

@@ -152,6 +152,11 @@ class Secrets(BaseModel):
     # Если не заданы - берутся из профиля hh.ru (может не сработать при смене разметки).
     first_name: Optional[str] = ""
     last_name: Optional[str] = ""
+    # Контакты для восстановления после анонимизации кэшированного резюме.
+    telegram: Optional[str] = ""
+    whatsapp: Optional[str] = ""
+    phone: Optional[str] = ""
+    email: Optional[str] = ""
 
     @field_validator("tg_api_id", mode="before")
     @classmethod

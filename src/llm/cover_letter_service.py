@@ -62,7 +62,8 @@ class CoverLetterService:
             scraper = ResumeScraper(manager, "", "", gpt)
             resume_id, _titles = await scraper.get_resume_parameters()
             scraper.resume_id = resume_id
-            await scraper.get_resume_info()
+            _resume_info, readable = await scraper.get_resume_info()
+            scraper._readable = readable
             self._resume_scraper = scraper
             self._cached_at = time.monotonic()
             logger.info("Резюме обновлено из браузера")
@@ -72,15 +73,9 @@ class CoverLetterService:
             return self._load_resume_from_file()
 
     def _load_resume_from_file(self) -> ResumeScraper:
-        """Fallback-резюме из кэш-файла (уже анонимизировано ранее)"""
+        """Fallback-резюме из кэша с восстановлением реальных контактов."""
         gpt = self._build_gpt_answerer()
-        scraper = ResumeScraper.__new__(ResumeScraper)
-        # минимальная инициализация без менеджера
-        scraper.manager = None
-        scraper.job_title = ""
-        scraper.resume_id = ""
-        scraper.github_links = []
-        scraper.gpt_answerer_component = gpt
+        scraper = ResumeScraper(None, "", "", gpt)
         try:
             resume_info = load_yaml_file(self.resume_cache_path) or {}
         except Exception as e:
@@ -88,8 +83,8 @@ class CoverLetterService:
                 f"Резюме недоступно: браузер не отвечает, кэш-файл не читается ({e})"
             )
         scraper.resume_info = resume_info
-        scraper.personal_information = dict(resume_info.get("personal_information", {}))
-        readable = transform_resume_data(resume_info)
+        scraper.restore_personal_information_from_cache()
+        readable = scraper.anonymize_text(transform_resume_data(resume_info))
         scraper._readable = readable
         self._resume_scraper = scraper
         self._cached_at = time.monotonic()
