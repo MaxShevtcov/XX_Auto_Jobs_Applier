@@ -364,6 +364,17 @@ docker compose up -d
 
 Контейнер работает постоянно (`restart: unless-stopped`), `schedule.yaml`, кэши и browser-сессия переживают recreate благодаря volume `./data_folder:/app/data_folder`. `docker stop` корректно завершает текущую задачу (счётчики восстанавливаются из `last_run.yaml` при следующем старте). Разовый сценарий `python main.py` сохранён для локальной отладки.
 
+Перед первым запуском на сервере дайте пользователю контейнера (`1000:1000`, см. `docker-compose.yml`) право читать секреты и писать runtime-данные. Особенно важно выполнить это, если `secrets.yaml` был создан через `sudo`:
+
+```bash
+sudo chown -R 1000:1000 data_folder logs
+chmod 700 data_folder/secrets
+chmod 600 data_folder/secrets/secrets.yaml
+docker compose up -d --build
+```
+
+Если LLM-провайдер возвращает 404 с сообщением, что free-модель больше недоступна, замените `LLM_MODEL` на slug, который он указал в ответе. Например, `minimax/minimax-m3-free` заменяется на `minimax/minimax-m3`. При наличии `llm_fallback_api_key` приложение автоматически переключается на fallback также при такой ошибке.
+
 ## 📨 Инструкция по настройке чата Telegram
 
 1. Создайте Telegram бота и получите токен, следуя [этой](https://core.telegram.org/bots/tutorial#obtain-your-bot-token) инструкции. Установите переменную `tg_token` с полученным токеном в файле `data_folder/secrets/secrets.yaml`.

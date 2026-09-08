@@ -85,14 +85,19 @@ class TestGeminiModel:
         response = model.invoke(prompt)
 
         # Verify
-        try:
-            mock_os.environ.__setitem__.assert_called_with("https_proxy", mock_llm_proxy[0])
-        except AssertionError:
-            mock_os.environ.__setitem__.assert_called_with("https_proxy", mock_llm_proxy[1])
+        assert any(
+            call.args[0] == "https_proxy" and call.args[1] in mock_llm_proxy
+            for call in mock_os.environ.__setitem__.call_args_list
+        )
+        assert any(
+            call.args[0] == "HTTPS_PROXY" and call.args[1] in mock_llm_proxy
+            for call in mock_os.environ.__setitem__.call_args_list
+        )
         mock_chat_gemini.assert_called_once()
         mock_model_instance.invoke.assert_called_once()
         assert response.content == "Test response"
-        mock_os.environ.__delitem__.assert_called_with("https_proxy")
+        mock_os.environ.pop.assert_any_call("https_proxy", None)
+        mock_os.environ.pop.assert_any_call("HTTPS_PROXY", None)
 
     @patch("src.llm.llm_manager.ChatGoogleGenerativeAI")
     @patch("src.llm.llm_manager.os")
@@ -118,7 +123,8 @@ class TestGeminiModel:
             response = model.invoke(prompt)
 
         # Verify fallback to second proxy
-        assert mock_os.environ.__setitem__.call_count == 2
+        # Для совместимости библиотек задаём оба варианта имени переменной.
+        assert mock_os.environ.__setitem__.call_count == 4
         assert mock_chat_gemini.call_count == 2
         assert mock_sleep.called
         assert response.content == "Success response"
@@ -157,6 +163,41 @@ class TestAIAdapter:
             adapter.invoke("test prompt")
 
             mock_model.invoke.assert_called_once_with("test prompt")
+
+    @patch("src.llm.llm_manager.LLM_MODEL_TYPE", "openai")
+    @patch("src.llm.llm_manager.OpenAIModel")
+    def test_uses_fallback_when_primary_model_is_unavailable(
+        self, mock_openai_model, mock_api_key, mock_llm_proxy
+    ):
+        from src.llm.llm_manager import AIAdapter, LLMModelUnavailableError
+
+        primary_model, fallback_model = MagicMock(), MagicMock()
+        primary_model.invoke.side_effect = LLMModelUnavailableError("model is unavailable")
+        fallback_model.invoke.return_value = AIMessage(content="fallback response")
+        mock_openai_model.side_effect = [primary_model, fallback_model]
+
+        adapter = AIAdapter(mock_api_key, mock_llm_proxy, fallback_api_key="fallback-key")
+
+        assert adapter.invoke("test prompt").content == "fallback response"
+        assert adapter.model is fallback_model
+        primary_model.invoke.assert_called_once_with("test prompt")
+        fallback_model.invoke.assert_called_once_with("test prompt")
+
+
+class TestOpenAIModel:
+    @patch("src.llm.llm_manager.ChatOpenAI")
+    def test_reports_unavailable_model_without_trying_other_proxies(self, mock_chat_openai):
+        from src.llm.llm_manager import LLMModelUnavailableError, OpenAIModel
+
+        mock_chat_openai.return_value.invoke.side_effect = Exception(
+            "Error code: 404 - This model is unavailable for free"
+        )
+        model = OpenAIModel("key", "minimax/minimax-m3-free", ["http://proxy-1", "http://proxy-2"])
+
+        with pytest.raises(LLMModelUnavailableError, match="minimax/minimax-m3-free"):
+            model.invoke(ChatPromptTemplate.from_template("Test prompt"))
+
+        assert mock_chat_openai.call_count == 1
 
 
 class TestLoggerChatModel:

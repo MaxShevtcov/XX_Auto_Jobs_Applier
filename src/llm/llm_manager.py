@@ -44,6 +44,10 @@ class LLMDailyRateLimitError(RuntimeError):
     """Дневной лимит провайдера исчерпан; новые запросы отправлять нельзя."""
 
 
+class LLMModelUnavailableError(RuntimeError):
+    """Сконфигурированная модель больше недоступна у провайдера."""
+
+
 class AIModel(ABC):
     @abstractmethod
     def invoke(self, prompt: str) -> str:
@@ -118,6 +122,24 @@ class OpenAIModel(AIModel):
                     else:
                         logger.error(f"Ошибка доступа к LLM: \n Traceback: {tb_str}")
                     error_text = str(error).lower()
+                    # Это ошибка конфигурации модели, а не сети или прокси. Повтор с
+                    # другим прокси заведомо не поможет и скрывает полезный текст 404.
+                    model_unavailable = (
+                        "404" in error_text
+                        and any(
+                            marker in error_text
+                            for marker in (
+                                "model is unavailable",
+                                "model not found",
+                                "unknown model",
+                                "does not exist",
+                            )
+                        )
+                    )
+                    if model_unavailable:
+                        raise LLMModelUnavailableError(
+                            f"Модель LLM '{self.model_name}' недоступна у провайдера: {error}"
+                        ) from error
                     daily_limit = any(
                         marker in error_text
                         for marker in ("free-models-per-day", "openrouter_free_tier_daily")
@@ -314,11 +336,12 @@ class AIAdapter:
     def invoke(self, prompt: str) -> str:
         try:
             return self.model.invoke(prompt)
-        except LLMDailyRateLimitError:
+        except (LLMDailyRateLimitError, LLMModelUnavailableError) as error:
             if self.fallback_model is None:
                 raise
             logger.warning(
-                f"Переключаемся на fallback LLM: {LLM_FALLBACK_MODEL} через {LLM_FALLBACK_BASE_URL}"
+                "Переключаемся на fallback LLM после ошибки основной модели "
+                f"({error}): {LLM_FALLBACK_MODEL} через {LLM_FALLBACK_BASE_URL}"
             )
             self.model = self.fallback_model
             self.fallback_model = None
