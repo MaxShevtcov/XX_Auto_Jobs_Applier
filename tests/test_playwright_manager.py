@@ -1011,6 +1011,13 @@ def test_build_search_url_search_field_name(manager):
     assert "search_field=name" in url
 
 
+def test_build_search_url_keeps_all_selected_search_fields(manager):
+    url = manager._build_search_url({"search_field": {"name": True, "description": True}})
+
+    assert "search_field=name" in url
+    assert "search_field=description" in url
+
+
 def test_build_search_url_full_config(manager):
     """Полный набор параметров как в реальном search_config.yaml."""
     url = manager._build_search_url({

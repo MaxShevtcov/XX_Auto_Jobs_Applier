@@ -353,11 +353,14 @@ class PlaywrightJobManager:
         # --- Где искать ---
         sf = search_params.get("search_field") or {}
         sf_keys = self._true_keys(sf)
-        if sf_keys:
-            if "description" in sf_keys:
-                params["search_field"] = "description"
-            elif "name" in sf_keys or "company_name" in sf_keys:
-                params["search_field"] = "name"
+        for key in sf_keys:
+            # HH поддерживает несколько search_field. Раньше при выборе
+            # названия и описания в URL уходило только описание.
+            if key in {"name", "company_name", "description"}:
+                params.setdefault("search_field", [])
+                if isinstance(params["search_field"], str):
+                    params["search_field"] = [params["search_field"]]
+                params["search_field"].append(key)
 
         # --- Опыт ---
         exp = search_params.get("experience") or {}

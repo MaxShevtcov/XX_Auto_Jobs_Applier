@@ -79,6 +79,7 @@ def _make_job(
     company_name="TestCo",
     skills="python",
     description="Описание вакансии",
+    work_formats="Удалённая работа",
 ):
     return {
         "job_title": job_title,
@@ -87,6 +88,7 @@ def _make_job(
         "company_name": company_name,
         "skills": skills,
         "description": description,
+        "work_formats": work_formats,
     }
 
 
@@ -109,6 +111,22 @@ class TestInit:
         assert ja.page_num == 0
         assert ja.error_num == 0
         assert ja.total_applies_num == 0
+
+
+class TestRemoteWorkFormat:
+    @pytest.mark.parametrize(
+        ("work_formats", "expected"),
+        [
+            ("Формат работы: удалённо", True),
+            ("Формат работы: удалённо или гибрид", True),
+            ("Формат работы: на месте работодателя, удалённо или гибрид", True),
+            ("Формат работы: гибрид", False),
+            ("Формат работы: на месте работодателя", False),
+            ("", False),
+        ],
+    )
+    def test_allows_any_vacancy_with_remote_option(self, work_formats, expected):
+        assert JobApplier._is_remote_only_job({"work_formats": work_formats}) is expected
 
 
 # ---------------------------------------------------------------------------

@@ -686,7 +686,13 @@ class GPTAnswerer:
 
     def set_search_parameters(self, parameters: dict) -> None:
         """Устанавливаем параметры поиска вакансий."""
-        logger.info(f"Устанавливаем параметры поиска вакансий: {parameters}")
+        # Исходный словарь содержит учётные данные HH. Не выводим их в журнал:
+        # логи переживают сессию и используются при диагностике.
+        safe_parameters = {
+            key: "***" if key == "hh_password" else value
+            for key, value in parameters.items()
+        }
+        logger.info(f"Устанавливаем параметры поиска вакансий: {safe_parameters}")
         self.search_parameters = transform_search_config_data(parameters)
 
     def extract_skills_from_vacancy(self, job_description: str) -> list[str]:

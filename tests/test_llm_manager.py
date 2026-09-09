@@ -289,6 +289,25 @@ class TestLoggerChatModel:
 
 
 class TestGPTAnswerer:
+    def test_set_search_parameters_redacts_hh_password(self):
+        from src.llm.llm_manager import GPTAnswerer
+
+        answerer = object.__new__(GPTAnswerer)
+        parameters = {"job_title": "AI Engineer", "hh_password": "must-not-appear"}
+
+        with (
+            patch("src.llm.llm_manager.logger.info") as log_info,
+            patch(
+                "src.llm.llm_manager.transform_search_config_data",
+                return_value="readable parameters",
+            ),
+        ):
+            answerer.set_search_parameters(parameters)
+
+        assert "must-not-appear" not in log_info.call_args.args[0]
+        assert "'hh_password': '***'" in log_info.call_args.args[0]
+        assert answerer.search_parameters == "readable parameters"
+
     @patch("src.llm.llm_manager.AIAdapter")
     def test_init(self, mock_ai_adapter, mock_config, mock_api_key, mock_llm_proxy):
         from src.llm.llm_manager import GPTAnswerer
@@ -392,6 +411,7 @@ class TestGPTAnswerer:
         mock_ai_adapter,
         mock_resume,
         mock_job,
+        mock_search_parameters,
         mock_config,
         mock_api_key,
         mock_llm_proxy,
@@ -417,7 +437,14 @@ class TestGPTAnswerer:
 
     @patch("src.llm.llm_manager.AIAdapter")
     def test_job_is_interesting_low_score(
-        self, mock_ai_adapter, mock_resume, mock_job, mock_config, mock_api_key, mock_llm_proxy
+        self,
+        mock_ai_adapter,
+        mock_resume,
+        mock_job,
+        mock_search_parameters,
+        mock_config,
+        mock_api_key,
+        mock_llm_proxy,
     ):
         from src.llm.llm_manager import GPTAnswerer
 
